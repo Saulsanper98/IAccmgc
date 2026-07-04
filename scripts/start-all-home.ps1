@@ -89,9 +89,8 @@ Load-EnvPorts
 
 Write-Host "[INFO] Puertos: API=$apiPort  Web=$webPort  PG=$pgPort  Redis=$redisPort"
 
-# Resolver ejecutables
+# Resolver python
 $pythonExe = (Get-Command python -ErrorAction Stop).Source
-$npxExe = (Get-Command npx -ErrorAction Stop).Source
 
 # Ollama
 try {
@@ -136,10 +135,10 @@ Start-DevProcess -Name "worker" -Exe $pythonExe `
     -WorkDir $Root
 Write-Host "[OK] Worker"
 
-# Web
+# Web (npx en Windows es un .cmd — hay que usar cmd.exe)
 $webDir = Join-Path $Root "apps\web"
-Start-DevProcess -Name "web" -Exe $npxExe `
-    -Arguments "next dev --port $webPort" `
+Start-DevProcess -Name "web" -Exe "cmd.exe" `
+    -Arguments "/c npx next dev --port $webPort" `
     -WorkDir $webDir
 Write-Host "[OK] Web -> http://localhost:${webPort}"
 
