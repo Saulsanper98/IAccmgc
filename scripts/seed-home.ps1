@@ -12,14 +12,14 @@ Set-Location $Root
 Write-Host "=== Cargar manuales de prueba ===" -ForegroundColor Cyan
 Write-Host ""
 
-# Ollama
-try {
-    Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 5 | Out-Null
-    Write-Host "[OK] Ollama responde"
-} catch {
-    Write-Host "[ERROR] Ollama no responde. Abre la app Ollama en Windows." -ForegroundColor Red
-    exit 1
+# Descargar modelos si faltan
+$pullScript = Join-Path $Root "scripts\pull-ollama-models.ps1"
+if (Test-Path $pullScript) {
+    & $pullScript
+    if ($LASTEXITCODE -ne 0) { exit 1 }
 }
+
+# Ollama
 
 # .env sincronizado
 if (-not (Test-Path ".env")) {
