@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { signOutAction } from "@/app/actions/auth";
 import { NavLink } from "./NavLink";
 import { NavSidebarModeToggle } from "./NavSidebarModeToggle";
+import { AnchoredMenu } from "./AnchoredMenu";
 import { NavShellContext } from "./NavShellContext";
 import { CommandPalette } from "./CommandPalette";
 import { OfflineBanner } from "./OfflineBanner";
@@ -107,14 +108,17 @@ function useFocusTrap(open: boolean, containerRef: React.RefObject<HTMLElement |
 export function AppShell({ session, children }: AppShellProps) {
   const pathname = usePathname();
   const { theme, toggle } = useTheme();
-  const { mode, setMode, isExpanded } = useNavSidebarMode();
+  const { mode, setMode } = useNavSidebarMode();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [navHovered, setNavHovered] = useState(false);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
   const [healthStatus, setHealthStatus] = useState<"ok" | "degraded" | "down" | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const userMenuButtonRef = useRef<HTMLButtonElement>(null);
   const isChat = pathname.startsWith("/chat");
   const isAdmin = session.user.role === "admin";
+  const isExpanded = mode === "expanded" || (mode === "auto" && navHovered);
   const navCollapsed = !isExpanded;
 
   const closeUserMenu = useCallback(() => setUserMenuOpen(false), []);
@@ -160,6 +164,8 @@ export function AppShell({ session, children }: AppShellProps) {
             isExpanded && "nav-sidebar-expanded",
           )}
           aria-label="Navegación principal"
+          onMouseEnter={() => setNavHovered(true)}
+          onMouseLeave={() => setNavHovered(false)}
         >
           <div className={clsx("py-4", navCollapsed ? "px-2 flex justify-center" : "px-4")}>
             <Link
@@ -238,6 +244,7 @@ export function AppShell({ session, children }: AppShellProps) {
 
             <div className="relative">
               <button
+                ref={userMenuButtonRef}
                 type="button"
                 className={clsx(
                   "list-row w-full",
@@ -265,17 +272,15 @@ export function AppShell({ session, children }: AppShellProps) {
                 )}
               </button>
 
-              {userMenuOpen && (
-                <div
-                  ref={userMenuRef}
-                  id="user-menu"
-                  role="menu"
-                  aria-label="Menú de usuario"
-                  className={clsx(
-                    "absolute bottom-full mb-2 surface-card p-1 shadow-elevated z-50 min-w-[10rem]",
-                    navCollapsed ? "left-0" : "left-3 right-3",
-                  )}
-                >
+              <AnchoredMenu
+                open={userMenuOpen}
+                onClose={closeUserMenu}
+                anchorRef={userMenuButtonRef}
+                align={navCollapsed ? "left" : "stretch"}
+                minWidth={160}
+                ariaLabel="Menú de usuario"
+              >
+                <div ref={userMenuRef} id="user-menu">
                   <button type="button" role="menuitem" onClick={toggle} className="list-row w-full text-sm">
                     {theme === "dark" ? <IconSun className="w-4 h-4" /> : <IconMoon className="w-4 h-4" />}
                     {theme === "dark" ? "Modo claro" : "Modo oscuro"}
@@ -298,7 +303,7 @@ export function AppShell({ session, children }: AppShellProps) {
                     </button>
                   </form>
                 </div>
-              )}
+              </AnchoredMenu>
             </div>
           </div>
         </aside>

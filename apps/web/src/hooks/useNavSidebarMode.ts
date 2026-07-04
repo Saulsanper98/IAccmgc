@@ -2,20 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type NavSidebarMode = "collapsed" | "expanded";
+export type NavSidebarMode = "auto" | "collapsed" | "expanded";
 
 const STORAGE_KEY = "wikibridge-nav-mode";
 
 export function useNavSidebarMode() {
-  const [mode, setModeState] = useState<NavSidebarMode>("collapsed");
+  const [mode, setModeState] = useState<NavSidebarMode>("auto");
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "collapsed" || stored === "expanded") {
+    if (stored === "auto" || stored === "collapsed" || stored === "expanded") {
       setModeState(stored);
-    } else if (stored === "auto") {
-      setModeState("collapsed");
-      localStorage.setItem(STORAGE_KEY, "collapsed");
     }
   }, []);
 
@@ -24,12 +21,11 @@ export function useNavSidebarMode() {
     localStorage.setItem(STORAGE_KEY, next);
   }, []);
 
-  const isExpanded = mode === "expanded";
-
-  return { mode, setMode, isExpanded };
+  return { mode, setMode };
 }
 
 export const NAV_MODE_LABELS: Record<NavSidebarMode, string> = {
+  auto: "Automático",
   collapsed: "Contraído",
   expanded: "Expandido",
 };
