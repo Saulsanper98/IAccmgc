@@ -18,9 +18,16 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Write-Host "        https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
     exit 1
 }
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "SilentlyContinue"
 docker info 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[ERROR] Docker Desktop no esta corriendo. Abrelo y espera a que inicie." -ForegroundColor Red
+$dockerOk = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = $prevEap
+if (-not $dockerOk) {
+    Write-Host "[ERROR] Docker Desktop no esta corriendo." -ForegroundColor Red
+    Write-Host "        1. Abre Docker Desktop desde el menu Inicio" -ForegroundColor Yellow
+    Write-Host "        2. Espera a que diga 'Docker Desktop is running'" -ForegroundColor Yellow
+    Write-Host "        3. Vuelve a ejecutar: .\scripts\setup-windows-home.ps1" -ForegroundColor Yellow
     exit 1
 }
 Write-Host "[OK] Docker"
