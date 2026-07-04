@@ -1,10 +1,11 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -134,9 +135,13 @@ class Feedback(Base):
     user_id: Mapped[str] = mapped_column(String(128), nullable=False)
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     comment: Mapped[str | None] = mapped_column(Text)
+    correction: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     message: Mapped["Message"] = relationship(back_populates="feedback_entries")
+    validated_qa_entries: Mapped[list["ValidatedQa"]] = relationship(
+        back_populates="source_feedback"
+    )
 
     __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_feedback_message_user"),)
 
@@ -231,6 +236,40 @@ class StalenessFinding(Base):
 
 
 TEAM_CHAT_INSTRUCTIONS_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+class ValidatedQaStatus(str, enum.Enum):
+    PENDING = "pending"
+    VALIDATED = "validated"
+    REJECTED = "rejected"
+
+
+class ValidatedQa(Base):
+    __tablename__ = "validated_qa"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    question_embedding = mapped_column(Vector(settings.embedding_dim), nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ValidatedQaStatus] = mapped_column(
+        Enum(ValidatedQaStatus, name="validated_qa_status", values_callable=_enum_values),
+        nullable=False,
+        default=ValidatedQaStatus.PENDING,
+        index=True,
+    )
+    source_feedback_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("feedback.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    validated_by: Mapped[str | None] = mapped_column(String(128))
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    source_feedback: Mapped["Feedback | None"] = relationship(back_populates="validated_qa_entries")
 
 
 class UserChatInstructions(Base):

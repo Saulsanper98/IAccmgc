@@ -181,6 +181,7 @@ class ChatService:
         user_id: str,
         rating: int,
         comment: str | None = None,
+        correction: str | None = None,
     ) -> dict | None:
         message = await self._session.get(Message, message_id)
         if not message:
@@ -193,6 +194,8 @@ class ChatService:
         if rating not in (1, -1):
             raise ValueError("rating must be 1 or -1")
 
+        normalized_correction = (correction or "").strip() or None
+
         existing = await self._session.execute(
             select(Feedback).where(
                 Feedback.message_id == message_id, Feedback.user_id == user_id
@@ -202,17 +205,40 @@ class ChatService:
         if feedback:
             feedback.rating = rating
             feedback.comment = comment
+            feedback.correction = normalized_correction
         else:
             feedback = Feedback(
                 message_id=message_id,
                 user_id=user_id,
                 rating=rating,
                 comment=comment,
+                correction=normalized_correction,
             )
             self._session.add(feedback)
 
+        await self._session.flush()
+
+        validated_qa_id: str | None = None
+        if rating == -1 and normalized_correction:
+            from app.services.validated_qa import ValidatedQaService, find_preceding_user_question
+
+            question = await find_preceding_user_question(self._session, message)
+            if not question:
+                raise ValueError("No se encontró la pregunta original del usuario")
+            validated_row = await ValidatedQaService(self._session, self._settings).create_or_update_from_feedback(
+                feedback,
+                question=question,
+                correction=normalized_correction,
+                created_by=user_id,
+            )
+            validated_qa_id = str(validated_row.id)
+
         await self._session.commit()
-        return {"message_id": str(message_id), "rating": rating}
+        result = {"message_id": str(message_id), "rating": rating}
+        if validated_qa_id:
+            result["validated_qa_id"] = validated_qa_id
+            result["validated_qa_status"] = "pending"
+        return result
 
     async def stream_response(
         self,
