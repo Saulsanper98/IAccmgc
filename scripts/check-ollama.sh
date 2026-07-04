@@ -39,7 +39,7 @@ CHAT_MODEL = os.environ["CHAT_MODEL"]
 EMBED_MODEL = os.environ["EMBED_MODEL"]
 
 
-def api(method: str, path: str, body: dict | None = None, timeout: int = 30) -> dict | list:
+def api(method, path, body=None, timeout=30):
     url = f"{OLLAMA_URL}{path}"
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(
@@ -57,7 +57,7 @@ def api(method: str, path: str, body: dict | None = None, timeout: int = 30) -> 
         return json.loads(raw)
 
 
-def has_model(installed: list[str], wanted: str) -> bool:
+def has_model(installed, wanted):
     base = wanted.split(":")[0]
     for name in installed:
         if name == wanted or name.split(":")[0] == base:
@@ -65,7 +65,7 @@ def has_model(installed: list[str], wanted: str) -> bool:
     return False
 
 
-def pull_model(name: str) -> None:
+def pull_model(name):
     print(f"⬇ Descargando {name} (puede tardar varios minutos)...")
     url = f"{OLLAMA_URL}/api/pull"
     body = json.dumps({"name": name}).encode()
