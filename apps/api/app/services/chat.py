@@ -15,7 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.db.models import Chunk, Conversation, Feedback, IngestJob, Message, MessageRole, WikiPage
 from app.services.ollama import OllamaClient, hash_query
-from app.services.chat_instructions import ChatInstructionsService, build_rag_system_prompt
+from app.services.chat_instructions import (
+    ChatInstructionsService,
+    build_rag_system_prompt,
+    build_rag_user_message_content,
+)
+from app.services.validated_qa import ValidatedQaService
 from app.services.query_cache import QueryEmbeddingCache
 from app.services.search import ChunkHit, HybridSearchService
 
@@ -331,6 +336,14 @@ class ChatService:
 
             await self._ollama.unload_model(self._settings.embedding_model)
 
+            validated_hits = []
+            if self._settings.rag_validated_qa_enabled:
+                validated_hits = await ValidatedQaService(self._session, self._settings).search_validated(
+                    embedding,
+                    threshold=self._settings.rag_validated_qa_similarity_threshold,
+                    limit=self._settings.rag_validated_qa_max_results,
+                )
+
             yield self._sse("status", {"phase": "searching", "message": "Buscando en la documentación…"})
 
             diary_hits = await self._fetch_diary_hits(content)
@@ -363,15 +376,13 @@ class ChatService:
                 RAG_SYSTEM_PROMPT,
                 team_instructions=team_instructions,
                 user_instructions=user_instructions,
+                validated_qa_hits=validated_hits,
             )
 
             llm_messages = history + [
                 {
                     "role": "user",
-                    "content": (
-                        f"Fragmentos de documentación:\n\n{context_block}\n\n"
-                        f"Pregunta del usuario: {content}"
-                    ),
+                    "content": build_rag_user_message_content(context_block, content),
                 }
             ]
 
@@ -440,6 +451,14 @@ class ChatService:
                     "message_id": str(assistant_message.id),
                     "latency_ms": latency_ms,
                     "model": self._settings.chat_model,
+                    **(
+                        {
+                            "validated_qa_id": str(validated_hits[0].id),
+                            "validated_at": validated_hits[0].validated_at.isoformat(),
+                        }
+                        if validated_hits
+                        else {}
+                    ),
                 },
             )
         except Exception as exc:

@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     rag_diary_max_chars: int = 6000
     rrf_k: int = 60
     query_embedding_cache_ttl_seconds: int = 300
+    rag_validated_qa_enabled: bool = True
+    rag_validated_qa_similarity_threshold: float = 0.85
+    rag_validated_qa_max_results: int = 2
 
     # Staleness / health (Phase 3+)
     staleness_procedure_days: int = 180

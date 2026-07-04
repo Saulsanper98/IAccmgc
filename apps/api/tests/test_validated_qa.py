@@ -19,7 +19,7 @@ async def test_find_preceding_user_question():
     )
     session = AsyncMock()
     result_mock = MagicMock()
-    result_mock.scalar_one_or_none.return_value = "¿Cómo hago backup?"
+    result_mock.all.return_value = [(MessageRole.USER, "¿Cómo hago backup?")]
     session.execute.return_value = result_mock
 
     question = await find_preceding_user_question(session, assistant)

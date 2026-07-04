@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from typing import Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.db.models import Feedback, Message, MessageRole, ValidatedQa, ValidatedQaStatus
 from app.services.ollama import OllamaClient
+
+
+@dataclass(frozen=True)
+class ValidatedQaHit:
+    id: uuid.UUID
+    question: str
+    answer: str
+    validated_at: datetime
 
 
 @dataclass(frozen=True)
@@ -78,6 +86,47 @@ class ValidatedQaService:
 
         await self._session.flush()
         return FeedbackPromotionResult(entry=row, action="updated")
+
+    async def search_validated(
+        self,
+        query_embedding: list[float],
+        *,
+        threshold: float,
+        limit: int,
+    ) -> list[ValidatedQaHit]:
+        if limit <= 0:
+            return []
+
+        embedding_literal = "[" + ",".join(str(v) for v in query_embedding) + "]"
+        rows = await self._session.execute(
+            text(
+                """
+                SELECT
+                    id,
+                    question,
+                    answer,
+                    updated_at,
+                    1 - (question_embedding <=> CAST(:embedding AS vector)) AS similarity
+                FROM validated_qa
+                WHERE status = 'validated'
+                  AND (1 - (question_embedding <=> CAST(:embedding AS vector))) >= :threshold
+                ORDER BY question_embedding <=> CAST(:embedding AS vector)
+                LIMIT :limit
+                """
+            ),
+            {"embedding": embedding_literal, "threshold": threshold, "limit": limit},
+        )
+        hits: list[ValidatedQaHit] = []
+        for row in rows.mappings():
+            hits.append(
+                ValidatedQaHit(
+                    id=row["id"],
+                    question=row["question"],
+                    answer=row["answer"],
+                    validated_at=row["updated_at"],
+                )
+            )
+        return hits
 
     async def list_entries(
         self,
