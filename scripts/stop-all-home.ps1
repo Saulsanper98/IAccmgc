@@ -9,12 +9,12 @@ $PidDir = Join-Path $Root ".dev\pids"
 foreach ($name in @("api", "worker", "web")) {
     $file = Join-Path $PidDir "$name.pid"
     if (Test-Path $file) {
-        $procId = Get-Content $file -Raw
+        $procId = (Get-Content $file -Raw).Trim()
         try {
             Stop-Process -Id ([int]$procId) -Force -ErrorAction Stop
-            Write-Host "✓ $name detenido (PID $procId)"
+            Write-Host "[OK] $name detenido (PID $procId)"
         } catch {
-            Write-Host "⚠ $name ya no estaba corriendo"
+            Write-Host "[WARN] $name ya no estaba corriendo"
         }
         Remove-Item $file -Force
     }
