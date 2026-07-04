@@ -16,6 +16,7 @@ from app.config import Settings
 from app.db.models import Chunk, Conversation, Feedback, IngestJob, Message, MessageRole, WikiPage
 from app.services.ollama import OllamaClient, hash_query
 from app.services.chat_instructions import ChatInstructionsService, build_rag_system_prompt
+from app.services.query_cache import QueryEmbeddingCache
 from app.services.search import ChunkHit, HybridSearchService
 
 logger = logging.getLogger(__name__)

@@ -73,6 +73,7 @@ export function ChatMessages({
   const [viewportHeight, setViewportHeight] = useState(600);
   const userAtBottomRef = useRef(true);
   const wasStreamingRef = useRef(false);
+  const showScrollHintRef = useRef(false);
 
   const showWelcome = messages.length === 0 && !isSearching && !streamingContent && !loadingMessages;
   const showStreamingBlock = isSearching || !!streamingContent;
@@ -103,6 +104,10 @@ export function ChatMessages({
   }, [isSearching, streamingContent]);
 
   useEffect(() => {
+    showScrollHintRef.current = !!(isSearching || streamingContent);
+  }, [isSearching, streamingContent]);
+
+  useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
@@ -112,7 +117,7 @@ export function ChatMessages({
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
       const atBottom = distanceFromBottom < 80;
       userAtBottomRef.current = atBottom;
-      setShowScrollBtn(!atBottom && (isSearching || !!streamingContent));
+      setShowScrollBtn(!atBottom && showScrollHintRef.current);
     }
 
     function onResize() {
@@ -126,7 +131,7 @@ export function ChatMessages({
       el.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
     };
-  }, [isSearching, streamingContent]);
+  }, [isSearching]);
 
   const messagesWithSeparators = useMemo(() => {
     const items: RenderItem[] = [];
