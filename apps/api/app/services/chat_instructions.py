@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import TEAM_CHAT_INSTRUCTIONS_ID, TeamChatInstructions, UserChatInstructions
+from app.services.validated_qa import ValidatedQaHit
 
 MAX_INSTRUCTION_LENGTH = 4000
 
@@ -11,11 +12,29 @@ INSTRUCTIONS_PROMPT_RULES = """
 9. Las instrucciones orientan dónde buscar y cómo responder; no sustituyen la evidencia de los fragmentos. Si no hay fragmentos relevantes, dilo explícitamente."""
 
 
+def format_validated_qa_prompt_section(hits: list[ValidatedQaHit]) -> str:
+    if not hits:
+        return ""
+
+    lines = [
+        "\n\n### Respuestas validadas por el equipo (máxima prioridad)",
+        "Si la pregunta del usuario coincide con alguna de las siguientes, básate en la respuesta validada. Tiene prioridad sobre la documentación de la wiki si hay conflicto.",
+        "",
+    ]
+    for hit in hits:
+        date_str = hit.validated_at.date().isoformat()
+        lines.append(f"[Q]: {hit.question}")
+        lines.append(f"[A]: {hit.answer} (validada el {date_str})")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
 def build_rag_system_prompt(
     base_prompt: str,
     *,
     team_instructions: str | None = None,
     user_instructions: str | None = None,
+    validated_qa_hits: list[ValidatedQaHit] | None = None,
 ) -> str:
     parts = [base_prompt.rstrip(), INSTRUCTIONS_PROMPT_RULES]
 
@@ -27,7 +46,18 @@ def build_rag_system_prompt(
     if user_text:
         parts.append(f"\n\nInstrucciones personales del usuario:\n{user_text}")
 
+    validated_section = format_validated_qa_prompt_section(validated_qa_hits or [])
+    if validated_section:
+        parts.append(validated_section)
+
     return "".join(parts)
+
+
+def build_rag_user_message_content(context_block: str, user_question: str) -> str:
+    return (
+        f"Fragmentos de documentación:\n\n{context_block}\n\n"
+        f"Pregunta del usuario: {user_question}"
+    )
 
 
 class ChatInstructionsService:

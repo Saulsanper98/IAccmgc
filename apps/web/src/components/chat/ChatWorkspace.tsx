@@ -22,11 +22,12 @@ interface ChatWorkspaceProps {
 }
 
 const prefetchCache = new Map<string, ChatMessage[]>();
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export function ChatWorkspace({
   conversationId,
   initialConversations,
-  initialMessages = [],
+  initialMessages = EMPTY_MESSAGES,
   pageCount,
   wikiUrl,
 }: ChatWorkspaceProps) {
@@ -51,30 +52,53 @@ export function ChatWorkspace({
   const loadAbortRef = useRef<AbortController | null>(null);
   const lastFailedMessageRef = useRef<string | null>(null);
   const queryProcessedRef = useRef(false);
+  const streamingRafRef = useRef<number | null>(null);
+  const streamingBufferRef = useRef("");
+  const streamingPhaseRef = useRef(false);
+  const initialMessagesRef = useRef(initialMessages);
+
+  const flushStreamingContent = useCallback(() => {
+    setStreamingContent(streamingBufferRef.current);
+    streamingRafRef.current = null;
+  }, []);
+
+  const scheduleStreamingUpdate = useCallback(
+    (content: string) => {
+      streamingBufferRef.current = content;
+      if (streamingRafRef.current == null) {
+        streamingRafRef.current = requestAnimationFrame(flushStreamingContent);
+      }
+    },
+    [flushStreamingContent],
+  );
 
   useSwipeFromEdge(useCallback(() => setHistoryOpen(true), []));
 
   useEffect(() => {
-    setActiveConversationId(conversationId);
-    setOptimisticTitle(null);
+    initialMessagesRef.current = initialMessages;
+  }, [initialMessages]);
+
+  useEffect(() => {
+    if (conversationId !== undefined) {
+      setActiveConversationId(conversationId);
+      setOptimisticTitle(null);
+    }
   }, [conversationId]);
 
   useEffect(() => {
-    if (conversationId === loadedConversationRef.current) {
-      if (initialMessages.length > 0) {
-        setMessages(initialMessages);
-      }
+    const effectiveId = activeConversationId ?? conversationId;
+
+    if (effectiveId === loadedConversationRef.current) {
       return;
     }
-    if (!conversationId && loadedConversationRef.current && busy) return;
 
     loadAbortRef.current?.abort();
     const controller = new AbortController();
     loadAbortRef.current = controller;
 
-    loadedConversationRef.current = conversationId;
+    loadedConversationRef.current = effectiveId;
 
-    if (!conversationId) {
+    if (!effectiveId) {
       setMessages([]);
       setStreamingContent(undefined);
       setStreamingCitations(undefined);
@@ -85,7 +109,7 @@ export function ChatWorkspace({
       return;
     }
 
-    const cached = prefetchCache.get(conversationId);
+    const cached = prefetchCache.get(effectiveId);
     if (cached) {
       setMessages(cached);
       setLoadingMessages(false);
@@ -97,26 +121,29 @@ export function ChatWorkspace({
     setStreamingContent(undefined);
     setStreamingCitations(undefined);
 
-    fetch(`/api/chat/conversations/${conversationId}`, { signal: controller.signal })
+    fetch(`/api/chat/conversations/${effectiveId}`, { signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error("No se pudo cargar la conversación");
         return res.json();
       })
       .then((data) => {
         const loaded = data.messages ?? [];
-        prefetchCache.set(conversationId, loaded);
+        prefetchCache.set(effectiveId, loaded);
         setMessages(loaded);
       })
       .catch((err) => {
         if (err instanceof Error && err.name === "AbortError") return;
-        setMessages(initialMessages);
+        const fallback = initialMessagesRef.current;
+        if (fallback.length > 0) {
+          setMessages(fallback);
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingMessages(false);
       });
 
     return () => controller.abort();
-  }, [conversationId, initialMessages, busy]);
+  }, [activeConversationId, conversationId]);
 
   useEffect(() => {
     setConversations(initialConversations);
@@ -242,6 +269,7 @@ export function ChatWorkspace({
     setChunksFound(null);
     setStreamingContent(undefined);
     setStreamingCitations(undefined);
+    streamingPhaseRef.current = false;
     setEditDraft("");
     setMessages((prev) => [...prev, optimisticUser]);
 
@@ -298,9 +326,12 @@ export function ChatWorkspace({
           const payload = JSON.parse(data) as Record<string, unknown>;
           if (event === "token") {
             assistantContent += (payload.content as string) ?? "";
-            setStreamingContent(assistantContent);
-            setStatusMessage(null);
-            setStatusPhase("generating");
+            scheduleStreamingUpdate(assistantContent);
+            if (!streamingPhaseRef.current) {
+              streamingPhaseRef.current = true;
+              setStatusMessage(null);
+              setStatusPhase("generating");
+            }
           } else if (event === "status") {
             setStatusMessage((payload.message as string) ?? null);
             setStatusPhase((payload.phase as string) ?? null);
@@ -324,6 +355,12 @@ export function ChatWorkspace({
         }
       }
 
+      if (streamingRafRef.current != null) {
+        cancelAnimationFrame(streamingRafRef.current);
+        streamingRafRef.current = null;
+      }
+      streamingBufferRef.current = "";
+      streamingPhaseRef.current = false;
       setStreamingContent(undefined);
       setStreamingCitations(undefined);
       setStatusMessage(null);
@@ -350,6 +387,12 @@ export function ChatWorkspace({
       await refreshConversations();
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
+      if (streamingRafRef.current != null) {
+        cancelAnimationFrame(streamingRafRef.current);
+        streamingRafRef.current = null;
+      }
+      streamingBufferRef.current = "";
+      streamingPhaseRef.current = false;
       setStreamingContent(undefined);
       setStatusMessage(null);
       setStatusPhase(null);

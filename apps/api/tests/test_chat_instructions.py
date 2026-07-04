@@ -25,3 +25,9 @@ def test_build_prompt_with_team_and_user():
 def test_build_prompt_ignores_blank():
     result = build_rag_system_prompt(BASE, team_instructions="   ", user_instructions="")
     assert "Instrucciones del equipo" not in result
+
+
+def test_build_prompt_ignores_empty_validated_hits():
+    baseline = build_rag_system_prompt(BASE)
+    with_empty = build_rag_system_prompt(BASE, validated_qa_hits=[])
+    assert baseline == with_empty

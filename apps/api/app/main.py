@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.admin_ingest import router as admin_ingest_router
+from app.api.routes.admin_validated_qa import router as admin_validated_qa_router
 from app.api.routes.auth_ldap import router as auth_ldap_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.chat_instructions import router as chat_instructions_router
@@ -40,6 +41,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router, prefix=settings.api_prefix)
     app.include_router(admin_ingest_router, prefix=settings.api_prefix)
+    app.include_router(admin_validated_qa_router, prefix=settings.api_prefix)
     app.include_router(chat_router, prefix=settings.api_prefix)
     app.include_router(chat_instructions_router, prefix=settings.api_prefix)
     app.include_router(document_health_router, prefix=settings.api_prefix)

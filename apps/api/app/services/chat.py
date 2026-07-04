@@ -15,7 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.db.models import Chunk, Conversation, Feedback, IngestJob, Message, MessageRole, WikiPage
 from app.services.ollama import OllamaClient, hash_query
-from app.services.chat_instructions import ChatInstructionsService, build_rag_system_prompt
+from app.services.chat_instructions import (
+    ChatInstructionsService,
+    build_rag_system_prompt,
+    build_rag_user_message_content,
+)
+from app.services.validated_qa import ValidatedQaService
+from app.services.query_cache import QueryEmbeddingCache
 from app.services.search import ChunkHit, HybridSearchService
 
 logger = logging.getLogger(__name__)
@@ -180,6 +186,7 @@ class ChatService:
         user_id: str,
         rating: int,
         comment: str | None = None,
+        correction: str | None = None,
     ) -> dict | None:
         message = await self._session.get(Message, message_id)
         if not message:
@@ -192,6 +199,8 @@ class ChatService:
         if rating not in (1, -1):
             raise ValueError("rating must be 1 or -1")
 
+        normalized_correction = (correction or "").strip() or None
+
         existing = await self._session.execute(
             select(Feedback).where(
                 Feedback.message_id == message_id, Feedback.user_id == user_id
@@ -201,17 +210,46 @@ class ChatService:
         if feedback:
             feedback.rating = rating
             feedback.comment = comment
+            feedback.correction = normalized_correction
         else:
             feedback = Feedback(
                 message_id=message_id,
                 user_id=user_id,
                 rating=rating,
                 comment=comment,
+                correction=normalized_correction,
             )
             self._session.add(feedback)
 
+        await self._session.flush()
+
+        validated_qa_id: str | None = None
+        validated_qa_notice: str | None = None
+        if rating == -1 and normalized_correction:
+            from app.services.validated_qa import ValidatedQaService, find_preceding_user_question
+
+            question = await find_preceding_user_question(self._session, message)
+            if not question:
+                raise ValueError("No se encontró la pregunta original del usuario")
+            promotion = await ValidatedQaService(self._session, self._settings).create_or_update_from_feedback(
+                feedback,
+                question=question,
+                correction=normalized_correction,
+                created_by=user_id,
+            )
+            if promotion.entry is not None:
+                validated_qa_id = str(promotion.entry.id)
+            elif promotion.action == "ignored_validated":
+                validated_qa_notice = promotion.message
+
         await self._session.commit()
-        return {"message_id": str(message_id), "rating": rating}
+        result = {"message_id": str(message_id), "rating": rating}
+        if validated_qa_id:
+            result["validated_qa_id"] = validated_qa_id
+            result["validated_qa_status"] = "pending"
+        if validated_qa_notice:
+            result["validated_qa_notice"] = validated_qa_notice
+        return result
 
     async def stream_response(
         self,
@@ -298,6 +336,19 @@ class ChatService:
 
             await self._ollama.unload_model(self._settings.embedding_model)
 
+            validated_hits = []
+            if self._settings.rag_validated_qa_enabled:
+                logger.debug(
+                    "Searching validated_qa threshold=%.2f max=%d",
+                    self._settings.rag_validated_qa_similarity_threshold,
+                    self._settings.rag_validated_qa_max_results,
+                )
+                validated_hits = await ValidatedQaService(self._session, self._settings).search_validated(
+                    embedding,
+                    threshold=self._settings.rag_validated_qa_similarity_threshold,
+                    limit=self._settings.rag_validated_qa_max_results,
+                )
+
             yield self._sse("status", {"phase": "searching", "message": "Buscando en la documentación…"})
 
             diary_hits = await self._fetch_diary_hits(content)
@@ -330,15 +381,13 @@ class ChatService:
                 RAG_SYSTEM_PROMPT,
                 team_instructions=team_instructions,
                 user_instructions=user_instructions,
+                validated_qa_hits=validated_hits,
             )
 
             llm_messages = history + [
                 {
                     "role": "user",
-                    "content": (
-                        f"Fragmentos de documentación:\n\n{context_block}\n\n"
-                        f"Pregunta del usuario: {content}"
-                    ),
+                    "content": build_rag_user_message_content(context_block, content),
                 }
             ]
 
@@ -407,6 +456,14 @@ class ChatService:
                     "message_id": str(assistant_message.id),
                     "latency_ms": latency_ms,
                     "model": self._settings.chat_model,
+                    **(
+                        {
+                            "validated_qa_id": str(validated_hits[0].id),
+                            "validated_at": validated_hits[0].validated_at.isoformat(),
+                        }
+                        if validated_hits
+                        else {}
+                    ),
                 },
             )
         except Exception as exc:

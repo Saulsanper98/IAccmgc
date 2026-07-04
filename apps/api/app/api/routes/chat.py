@@ -28,6 +28,7 @@ class SendMessageRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     rating: int = Field(description="1 for positive, -1 for negative")
     comment: str | None = None
+    correction: str | None = None
 
 
 @router.get("/conversations")
@@ -131,7 +132,7 @@ async def submit_feedback(
     service = ChatService(session, settings)
     try:
         result = await service.submit_feedback(
-            message_id, user.user_id, body.rating, body.comment
+            message_id, user.user_id, body.rating, body.comment, body.correction
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
