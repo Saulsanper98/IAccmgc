@@ -58,6 +58,14 @@ Write-Host ""
 
 Sync-Env
 
+# Leer puertos desde .env
+$pgPort = 5433
+$redisPort = 6380
+Get-Content ".env" | ForEach-Object {
+    if ($_ -match '^POSTGRES_PORT=(.+)$') { $pgPort = [int]$Matches[1] }
+    if ($_ -match '^REDIS_PORT=(.+)$') { $redisPort = [int]$Matches[1] }
+}
+
 # Ollama
 try {
     Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 3 | Out-Null
@@ -75,7 +83,7 @@ if (-not (Test-PortOpen 5432) -or -not (Test-PortOpen 6379)) {
         Start-Sleep -Seconds 5
     }
 }
-if (-not (Test-PortOpen 5432)) {
+if (-not (Test-PortOpen 5432) -and -not (Test-PortOpen 5433)) {
     Write-Host "[ERROR] PostgreSQL no responde. Ejecuta: .\scripts\setup-windows-home.ps1" -ForegroundColor Red
     exit 1
 }

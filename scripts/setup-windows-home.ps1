@@ -41,6 +41,49 @@ Copy-Item -Force ".env" "apps\api\.env"
 Copy-Item -Force ".env" "apps\web\.env.local"
 Write-Host "[OK] .env copiado a apps/api y apps/web"
 
+function Test-PortInUse([int]$Port) {
+    try {
+        $tcp = New-Object System.Net.Sockets.TcpClient
+        $tcp.Connect("127.0.0.1", $Port)
+        $tcp.Close()
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Set-EnvValue([string]$Key, [string]$Value) {
+    $lines = Get-Content ".env"
+    $found = $false
+    $newLines = foreach ($line in $lines) {
+        if ($line -match "^$([regex]::Escape($Key))=") {
+            $found = $true
+            "$Key=$Value"
+        } else {
+            $line
+        }
+    }
+    if (-not $found) { $newLines += "$Key=$Value" }
+    $newLines | Set-Content ".env" -Encoding utf8
+}
+
+# Ajustar puertos si ya estan ocupados en el PC
+if (Test-PortInUse 6379) {
+    Write-Host "[WARN] Puerto 6379 ocupado - usando Redis en 6380" -ForegroundColor Yellow
+    Set-EnvValue "REDIS_PORT" "6380"
+    Set-EnvValue "REDIS_URL" "redis://localhost:6380/0"
+}
+if (Test-PortInUse 5432) {
+    Write-Host "[WARN] Puerto 5432 ocupado - usando PostgreSQL en 5433" -ForegroundColor Yellow
+    Set-EnvValue "POSTGRES_PORT" "5433"
+    Set-EnvValue "DATABASE_URL" "postgresql+asyncpg://wikibridge:wikibridge@localhost:5433/wikibridge"
+}
+Copy-Item -Force ".env" "apps\api\.env"
+Copy-Item -Force ".env" "apps\web\.env.local"
+
+# Limpiar intento fallido previo de docker compose
+docker compose -f infra/docker-compose.home.yml --env-file .env down 2>&1 | Out-Null
+
 # PostgreSQL + Redis
 Write-Host ">> Levantando PostgreSQL + Redis..."
 docker compose -f infra/docker-compose.home.yml --env-file .env up -d
