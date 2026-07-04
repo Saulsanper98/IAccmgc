@@ -61,12 +61,13 @@ function Start-DevProcess {
     param(
         [string]$Name,
         [string]$Exe,
-        [string[]]$Args,
+        [string[]]$ProcessArgs,
         [string]$WorkDir = $Root
     )
     $logOut = Join-Path $LogDir "$Name.log"
     $logErr = Join-Path $LogDir "$Name.err"
-    $proc = Start-Process -FilePath $Exe -ArgumentList $Args `
+    $argList = @($ProcessArgs | Where-Object { $null -ne $_ -and $_ -ne "" })
+    $proc = Start-Process -FilePath $Exe -ArgumentList $argList `
         -WorkingDirectory $WorkDir `
         -WindowStyle Hidden `
         -RedirectStandardOutput $logOut `
