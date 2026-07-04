@@ -338,6 +338,11 @@ class ChatService:
 
             validated_hits = []
             if self._settings.rag_validated_qa_enabled:
+                logger.debug(
+                    "Searching validated_qa threshold=%.2f max=%d",
+                    self._settings.rag_validated_qa_similarity_threshold,
+                    self._settings.rag_validated_qa_max_results,
+                )
                 validated_hits = await ValidatedQaService(self._session, self._settings).search_validated(
                     embedding,
                     threshold=self._settings.rag_validated_qa_similarity_threshold,

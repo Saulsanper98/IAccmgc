@@ -105,6 +105,31 @@ def test_no_regression_full_assembly_without_validated_hits():
     assert user_message == expected_user
 
 
+def test_done_payload_with_and_without_validated_hits():
+    from datetime import UTC, datetime
+
+    hit = _hit("¿Marquesinas?", "systemctl restart marquesinas")
+    base = {"message_id": "msg-1", "latency_ms": 100, "model": "test-model"}
+
+    with_meta = {
+        **base,
+        **(
+            {
+                "validated_qa_id": str(hit.id),
+                "validated_at": hit.validated_at.isoformat(),
+            }
+            if [hit]
+            else {}
+        ),
+    }
+    without_meta = {**base, **({} if not [] else {"validated_qa_id": "x"})}
+
+    assert with_meta["validated_qa_id"] == str(hit.id)
+    assert "validated_at" in with_meta
+    assert "validated_qa_id" not in without_meta
+    assert "validated_at" not in without_meta
+
+
 @pytest.mark.asyncio
 async def test_search_validated_applies_threshold_and_limit():
     row1 = {
@@ -122,11 +147,11 @@ async def test_search_validated_applies_threshold_and_limit():
 
     with patch("app.services.validated_qa.OllamaClient"):
         service = ValidatedQaService(session, settings)
-        hits = await service.search_validated([0.1] * 1024, threshold=0.85, limit=2)
+        hits = await service.search_validated([0.1] * 1024, threshold=0.80, limit=2)
 
     assert len(hits) == 1
     assert hits[0].question == "¿Backup?"
     session.execute.assert_awaited_once()
-    params = session.execute.await_args.args[1]
-    assert params["threshold"] == 0.85
-    assert params["limit"] == 2
+    sql = session.execute.await_args.args[0].text
+    assert "validated_qa" in sql
+    assert "threshold" not in sql

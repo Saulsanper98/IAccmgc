@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -11,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.db.models import Feedback, Message, MessageRole, ValidatedQa, ValidatedQaStatus
 from app.services.ollama import OllamaClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -109,15 +112,44 @@ class ValidatedQaService:
                     1 - (question_embedding <=> CAST(:embedding AS vector)) AS similarity
                 FROM validated_qa
                 WHERE status = 'validated'
-                  AND (1 - (question_embedding <=> CAST(:embedding AS vector))) >= :threshold
                 ORDER BY question_embedding <=> CAST(:embedding AS vector)
-                LIMIT :limit
+                LIMIT 10
                 """
             ),
-            {"embedding": embedding_literal, "threshold": threshold, "limit": limit},
+            {"embedding": embedding_literal},
         )
+        candidates = list(rows.mappings())
+
+        if candidates:
+            best = candidates[0]
+            logger.info(
+                "validated_qa retrieval best_similarity=%.4f threshold=%.2f question=%r",
+                float(best["similarity"]),
+                threshold,
+                best["question"][:120],
+            )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            for row in candidates[:5]:
+                logger.debug(
+                    "validated_qa candidate id=%s similarity=%.4f question=%r threshold=%.2f",
+                    row["id"],
+                    float(row["similarity"]),
+                    row["question"][:120],
+                    threshold,
+                )
+
         hits: list[ValidatedQaHit] = []
-        for row in rows.mappings():
+        for row in candidates:
+            similarity = float(row["similarity"])
+            if similarity < threshold:
+                continue
+            logger.debug(
+                "validated_qa match id=%s similarity=%.4f question=%r",
+                row["id"],
+                similarity,
+                row["question"][:120],
+            )
             hits.append(
                 ValidatedQaHit(
                     id=row["id"],
@@ -126,6 +158,8 @@ class ValidatedQaService:
                     validated_at=row["updated_at"],
                 )
             )
+            if len(hits) >= limit:
+                break
         return hits
 
     async def list_entries(
