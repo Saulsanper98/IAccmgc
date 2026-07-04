@@ -3,7 +3,7 @@ import { apiUserHeaders } from "@/lib/api";
 import { NextResponse } from "next/server";
 
 const API_BASE = process.env.INTERNAL_API_URL || "http://api:8000";
-const INTERNAL_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || "dev-internal-token";
+const INTERNAL_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || "wikibridge-internal-dev-token";
 
 export async function PATCH(
   request: Request,

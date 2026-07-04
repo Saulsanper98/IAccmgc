@@ -1,7 +1,7 @@
 import type { Session } from "next-auth";
 
 const API_BASE = process.env.INTERNAL_API_URL || "http://api:8000";
-const INTERNAL_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || "dev-internal-token";
+const INTERNAL_TOKEN = process.env.INTERNAL_SERVICE_TOKEN || "wikibridge-internal-dev-token";
 
 export function apiUserHeaders(session: Session): Record<string, string> {
   return {

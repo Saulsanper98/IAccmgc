@@ -14,6 +14,8 @@ fi
 
 # Symlink para que pydantic encuentre .env desde apps/api
 ln -sf "$ROOT/.env" "$ROOT/apps/api/.env"
+# Next.js carga .env.local desde apps/web
+ln -sf "$ROOT/.env" "$ROOT/apps/web/.env.local"
 
 echo "==> Migraciones"
 cd apps/api && alembic upgrade head && cd "$ROOT"

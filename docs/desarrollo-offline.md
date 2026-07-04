@@ -15,23 +15,16 @@ Guía para probar WikiBridge cuando no tienes acceso a la red corporativa ni a l
 ```bash
 # 1. Copiar configuración local
 cp .env.example .env
-# Editar .env: DATABASE_URL y REDIS_URL apuntando a localhost
+# Editar .env: DATABASE_URL, REDIS_URL, OLLAMA_BASE_URL e INTERNAL_API_URL apuntando a localhost
+# IMPORTANTE: INTERNAL_SERVICE_TOKEN debe ser el mismo en web y API (valor dev: wikibridge-internal-dev-token)
 
-# 2. Instalar dependencias
-npm install
-pip install -e "apps/api/[dev]"
-
-# 3. Migraciones
-cd apps/api && alembic upgrade head && cd ../..
-
-# 4. Cargar manuales de ejemplo (sin Wiki.js)
-python scripts/seed_local_manuals.py
-
-# 5. Levantar servicios (4 terminales)
+# 2. Setup (symlinks + migraciones + seed)
+./scripts/dev-local.sh
 ollama serve
 cd apps/api && uvicorn app.main:app --reload --port 8000
 PYTHONPATH=apps/api:apps/worker arq worker.main.WorkerSettings
-INTERNAL_API_URL=http://localhost:8000 npm run dev:web
+npm run dev:web
+# (Next.js lee .env.local — el script dev-local.sh crea el symlink automáticamente)
 ```
 
 ## Acceso
@@ -91,3 +84,12 @@ En `/admin` verás las 4 páginas indexadas. La sincronización con Wiki.js fall
 - Las páginas seed usan `wikijs_page_id` negativos (-1 a -4) para no colisionar con IDs reales de Wiki.js.
 - Los enlaces en los manuales apuntan a rutas ficticias (`*.ejemplo.interno`) — útiles para probar detectores de enlaces rotos.
 - Sin Ollama, el chat y los embeddings no funcionarán; el resto de la UI sí carga.
+
+## Error "No autorizado" en Admin / Salud / Runbooks
+
+La web y la API comparten un token interno (`INTERNAL_SERVICE_TOKEN`). Si no coinciden, verás `{"detail":"No autorizado"}`.
+
+**Solución:**
+1. En tu `.env` raíz, asegúrate de tener: `INTERNAL_SERVICE_TOKEN=wikibridge-internal-dev-token`
+2. Ejecuta `./scripts/dev-local.sh` (crea symlinks para que web y API lean el mismo `.env`)
+3. Reinicia el servidor web (`npm run dev:web`)
