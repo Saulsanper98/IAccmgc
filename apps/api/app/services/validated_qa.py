@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import date
+from typing import Literal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.db.models import Feedback, Message, MessageRole, ValidatedQa, ValidatedQaStatus
 from app.services.ollama import OllamaClient
+
+
+@dataclass(frozen=True)
+class FeedbackPromotionResult:
+    entry: ValidatedQa | None
+    action: Literal["created", "updated", "ignored_validated"]
+    message: str | None = None
 
 
 class ValidatedQaService:
@@ -24,7 +33,7 @@ class ValidatedQaService:
         question: str,
         correction: str,
         created_by: str,
-    ) -> ValidatedQa:
+    ) -> FeedbackPromotionResult:
         normalized_question = question.strip()
         normalized_answer = correction.strip()
         if not normalized_question or not normalized_answer:
@@ -34,6 +43,16 @@ class ValidatedQaService:
             select(ValidatedQa).where(ValidatedQa.source_feedback_id == feedback.id)
         )
         row = existing.scalar_one_or_none()
+
+        if row is not None and row.status == ValidatedQaStatus.VALIDATED:
+            return FeedbackPromotionResult(
+                entry=None,
+                action="ignored_validated",
+                message=(
+                    "Ya existe una respuesta validada por un administrador. "
+                    "Tu corrección quedó registrada en el feedback; contacta a un admin si necesitas cambiarla."
+                ),
+            )
 
         if row is None:
             embedding = await self._ollama.embed_text(normalized_question)
@@ -46,17 +65,19 @@ class ValidatedQaService:
                 created_by=created_by,
             )
             self._session.add(row)
-        else:
-            question_changed = row.question != normalized_question
-            row.question = normalized_question
-            row.answer = normalized_answer
-            row.status = ValidatedQaStatus.PENDING
-            row.validated_by = None
-            if question_changed:
-                row.question_embedding = await self._ollama.embed_text(normalized_question)
+            await self._session.flush()
+            return FeedbackPromotionResult(entry=row, action="created")
+
+        question_changed = row.question != normalized_question
+        row.question = normalized_question
+        row.answer = normalized_answer
+        row.status = ValidatedQaStatus.PENDING
+        row.validated_by = None
+        if question_changed:
+            row.question_embedding = await self._ollama.embed_text(normalized_question)
 
         await self._session.flush()
-        return row
+        return FeedbackPromotionResult(entry=row, action="updated")
 
     async def list_entries(
         self,
@@ -166,13 +187,18 @@ class ValidatedQaService:
 
 async def find_preceding_user_question(session: AsyncSession, assistant_message: Message) -> str | None:
     result = await session.execute(
-        select(Message.content)
+        select(Message.role, Message.content)
+        .where(Message.conversation_id == assistant_message.conversation_id)
         .where(
-            Message.conversation_id == assistant_message.conversation_id,
-            Message.role == MessageRole.USER,
-            Message.created_at < assistant_message.created_at,
+            (Message.created_at < assistant_message.created_at)
+            | (
+                (Message.created_at == assistant_message.created_at)
+                & (Message.id < assistant_message.id)
+            )
         )
-        .order_by(Message.created_at.desc())
-        .limit(1)
+        .order_by(Message.created_at.desc(), Message.id.desc())
     )
-    return result.scalar_one_or_none()
+    for role, content in result.all():
+        if role == MessageRole.USER:
+            return content
+    return None

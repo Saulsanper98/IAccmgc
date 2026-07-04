@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.db.models import Feedback, Message, MessageRole, ValidatedQa, ValidatedQaStatus
-from app.services.validated_qa import ValidatedQaService, find_preceding_user_question
+from app.services.validated_qa import FeedbackPromotionResult, ValidatedQaService, find_preceding_user_question
 
 
 @pytest.mark.asyncio
@@ -46,30 +46,30 @@ async def test_create_from_feedback_inserts_pending_with_embedding():
         mock_ollama.embed_text = AsyncMock(return_value=[0.1] * 1024)
 
         service = ValidatedQaService(session, settings)
-        row = await service.create_or_update_from_feedback(
+        result = await service.create_or_update_from_feedback(
             feedback,
             question="¿Cuál es el procedimiento?",
             correction="La respuesta correcta es X",
             created_by="user-1",
         )
 
-    assert row.status == ValidatedQaStatus.PENDING
-    assert row.question == "¿Cuál es el procedimiento?"
-    assert row.answer == "La respuesta correcta es X"
-    assert row.source_feedback_id == feedback.id
+    assert result.action == "created"
+    assert result.entry is not None
+    assert result.entry.status == ValidatedQaStatus.PENDING
+    assert result.entry.source_feedback_id == feedback.id
     mock_ollama.embed_text.assert_awaited_once_with("¿Cuál es el procedimiento?")
     session.add.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_create_from_feedback_updates_existing_and_reembeds_on_question_change():
+async def test_create_from_feedback_updates_pending_without_touching_validated():
     session = AsyncMock()
     existing = ValidatedQa(
         id=uuid.uuid4(),
         question="Pregunta antigua",
         question_embedding=[0.0] * 1024,
         answer="Respuesta antigua",
-        status=ValidatedQaStatus.REJECTED,
+        status=ValidatedQaStatus.PENDING,
         created_by="user-1",
     )
     session.execute.return_value = MagicMock(scalar_one_or_none=lambda: existing)
@@ -82,18 +82,52 @@ async def test_create_from_feedback_updates_existing_and_reembeds_on_question_ch
         mock_ollama.embed_text = AsyncMock(return_value=[0.2] * 1024)
 
         service = ValidatedQaService(session, settings)
-        row = await service.create_or_update_from_feedback(
+        result = await service.create_or_update_from_feedback(
             feedback,
             question="Pregunta nueva",
             correction="Respuesta nueva",
             created_by="user-1",
         )
 
-    assert row.question == "Pregunta nueva"
-    assert row.answer == "Respuesta nueva"
-    assert row.status == ValidatedQaStatus.PENDING
-    assert row.question_embedding == [0.2] * 1024
+    assert result.action == "updated"
+    assert existing.question == "Pregunta nueva"
+    assert existing.answer == "Respuesta nueva"
+    assert existing.status == ValidatedQaStatus.PENDING
     mock_ollama.embed_text.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_create_from_feedback_ignores_when_already_validated():
+    session = AsyncMock()
+    existing = ValidatedQa(
+        id=uuid.uuid4(),
+        question="Pregunta validada",
+        question_embedding=[0.0] * 1024,
+        answer="Respuesta validada",
+        status=ValidatedQaStatus.VALIDATED,
+        validated_by="admin-1",
+        created_by="user-1",
+    )
+    session.execute.return_value = MagicMock(scalar_one_or_none=lambda: existing)
+
+    feedback = Feedback(id=uuid.uuid4(), message_id=uuid.uuid4(), user_id="user-1", rating=-1)
+    settings = MagicMock()
+
+    with patch("app.services.validated_qa.OllamaClient") as mock_ollama_cls:
+        mock_ollama = mock_ollama_cls.return_value
+        service = ValidatedQaService(session, settings)
+        result = await service.create_or_update_from_feedback(
+            feedback,
+            question="Otra pregunta",
+            correction="Otra respuesta",
+            created_by="user-1",
+        )
+
+    assert result.action == "ignored_validated"
+    assert result.entry is None
+    assert existing.status == ValidatedQaStatus.VALIDATED
+    assert existing.answer == "Respuesta validada"
+    mock_ollama.embed_text.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -157,13 +191,16 @@ async def test_submit_feedback_negative_with_correction_creates_validated_qa():
 
         mock_vqa = MagicMock()
         mock_vqa.create_or_update_from_feedback = AsyncMock(
-            return_value=ValidatedQa(
-                id=uuid.uuid4(),
-                question="¿Cómo reinicio el servicio?",
-                question_embedding=[0.1] * 1024,
-                answer="Usa systemctl restart nginx",
-                status=ValidatedQaStatus.PENDING,
-                created_by="user-1",
+            return_value=FeedbackPromotionResult(
+                entry=ValidatedQa(
+                    id=uuid.uuid4(),
+                    question="¿Cómo reinicio el servicio?",
+                    question_embedding=[0.1] * 1024,
+                    answer="Usa systemctl restart nginx",
+                    status=ValidatedQaStatus.PENDING,
+                    created_by="user-1",
+                ),
+                action="created",
             )
         )
         with patch(

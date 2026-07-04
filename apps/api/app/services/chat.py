@@ -219,25 +219,31 @@ class ChatService:
         await self._session.flush()
 
         validated_qa_id: str | None = None
+        validated_qa_notice: str | None = None
         if rating == -1 and normalized_correction:
             from app.services.validated_qa import ValidatedQaService, find_preceding_user_question
 
             question = await find_preceding_user_question(self._session, message)
             if not question:
                 raise ValueError("No se encontró la pregunta original del usuario")
-            validated_row = await ValidatedQaService(self._session, self._settings).create_or_update_from_feedback(
+            promotion = await ValidatedQaService(self._session, self._settings).create_or_update_from_feedback(
                 feedback,
                 question=question,
                 correction=normalized_correction,
                 created_by=user_id,
             )
-            validated_qa_id = str(validated_row.id)
+            if promotion.entry is not None:
+                validated_qa_id = str(promotion.entry.id)
+            elif promotion.action == "ignored_validated":
+                validated_qa_notice = promotion.message
 
         await self._session.commit()
         result = {"message_id": str(message_id), "rating": rating}
         if validated_qa_id:
             result["validated_qa_id"] = validated_qa_id
             result["validated_qa_status"] = "pending"
+        if validated_qa_notice:
+            result["validated_qa_notice"] = validated_qa_notice
         return result
 
     async def stream_response(
