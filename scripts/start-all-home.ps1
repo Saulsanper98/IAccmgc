@@ -14,6 +14,16 @@ $LogDir = Join-Path $DevDir "logs"
 $PidDir = Join-Path $DevDir "pids"
 New-Item -ItemType Directory -Force -Path $LogDir, $PidDir | Out-Null
 
+function Invoke-Docker {
+    param([string[]]$DockerArgs)
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    & docker @DockerArgs 2>&1 | Out-Null
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = $prevEap
+    return $code
+}
+
 function Sync-Env {
     if (-not (Test-Path ".env")) {
         Copy-Item ".env.home.example" ".env"
@@ -21,6 +31,19 @@ function Sync-Env {
     }
     Copy-Item -Force ".env" "apps\api\.env"
     Copy-Item -Force ".env" "apps\web\.env.local"
+}
+
+function Read-EnvPorts {
+    $script:pgPort = 5433
+    $script:redisPort = 6380
+    $script:apiPort = 8000
+    $script:webPort = 3000
+    Get-Content ".env" | ForEach-Object {
+        if ($_ -match '^POSTGRES_PORT=(.+)$') { $script:pgPort = [int]$Matches[1] }
+        if ($_ -match '^REDIS_PORT=(.+)$') { $script:redisPort = [int]$Matches[1] }
+        if ($_ -match '^API_PORT=(.+)$') { $script:apiPort = [int]$Matches[1] }
+        if ($_ -match '^WEB_PORT=(.+)$') { $script:webPort = [int]$Matches[1] }
+    }
 }
 
 function Test-PortOpen([int]$Port) {
@@ -57,14 +80,7 @@ Write-Host "=== Arrancando WikiBridge en casa (Windows) ===" -ForegroundColor Cy
 Write-Host ""
 
 Sync-Env
-
-# Leer puertos desde .env
-$pgPort = 5433
-$redisPort = 6380
-Get-Content ".env" | ForEach-Object {
-    if ($_ -match '^POSTGRES_PORT=(.+)$') { $pgPort = [int]$Matches[1] }
-    if ($_ -match '^REDIS_PORT=(.+)$') { $redisPort = [int]$Matches[1] }
-}
+Read-EnvPorts
 
 # Ollama
 try {
@@ -76,18 +92,18 @@ try {
 }
 
 # Docker BD
-if (-not (Test-PortOpen 5432) -or -not (Test-PortOpen 6379)) {
+if (-not (Test-PortOpen $pgPort) -or -not (Test-PortOpen $redisPort)) {
     if (Get-Command docker -ErrorAction SilentlyContinue) {
         Write-Host ">> Levantando PostgreSQL + Redis..."
-        docker compose -f infra/docker-compose.home.yml --env-file .env up -d
-        Start-Sleep -Seconds 5
+        Invoke-Docker -DockerArgs @("compose", "-f", "infra/docker-compose.home.yml", "--env-file", ".env", "up", "-d") | Out-Null
+        Start-Sleep -Seconds 6
     }
 }
-if (-not (Test-PortOpen 5432) -and -not (Test-PortOpen 5433)) {
-    Write-Host "[ERROR] PostgreSQL no responde. Ejecuta: .\scripts\setup-windows-home.ps1" -ForegroundColor Red
+if (-not (Test-PortOpen $pgPort)) {
+    Write-Host "[ERROR] PostgreSQL no responde en puerto $pgPort. Ejecuta: .\scripts\setup-windows-home.ps1" -ForegroundColor Red
     exit 1
 }
-Write-Host "[OK] PostgreSQL + Redis"
+Write-Host "[OK] PostgreSQL + Redis (puertos $pgPort / $redisPort)"
 
 # Parar previos
 $stopScript = Join-Path $Root "scripts\stop-all-home.ps1"
@@ -97,9 +113,9 @@ if (Test-Path $stopScript) {
 
 # API
 Start-DevProcess -Name "api" -Exe "python" -Args @(
-    "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"
+    "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "$apiPort", "--reload"
 ) -WorkDir (Join-Path $Root "apps\api") | Out-Null
-Write-Host "[OK] API -> http://localhost:8000  (log: .dev\logs\api.log)"
+Write-Host "[OK] API -> http://localhost:${apiPort}  (log: .dev\logs\api.log)"
 
 # Worker
 $env:PYTHONPATH = "$Root\apps\api;$Root\apps\worker"
@@ -111,14 +127,16 @@ if (Get-Command arq -ErrorAction SilentlyContinue) {
 }
 
 # Web
-Start-DevProcess -Name "web" -Exe "npm" -Args @("run", "dev:web") | Out-Null
-Write-Host "[OK] Web -> http://localhost:3000  (log: .dev\logs\web.log)"
+Start-DevProcess -Name "web" -Exe "npx" -Args @(
+    "next", "dev", "--port", "$webPort"
+) -WorkDir (Join-Path $Root "apps\web") | Out-Null
+Write-Host "[OK] Web -> http://localhost:${webPort}  (log: .dev\logs\web.log)"
 
 Start-Sleep -Seconds 6
 Write-Host ""
 Write-Host "==========================================" -ForegroundColor Green
-Write-Host "  Web:   http://localhost:3000"
-Write-Host "  API:   http://localhost:8000/api/health"
+Write-Host "  Web:   http://localhost:${webPort}"
+Write-Host "  API:   http://localhost:${apiPort}/api/health"
 Write-Host "  Login: admin / admin"
 Write-Host ""
 Write-Host "  Chat:  Como hago un backup de servidores?"
