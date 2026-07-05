@@ -44,6 +44,9 @@ export function WikiPageCombobox({
       .slice(0, 50);
   }, [pages, query]);
 
+  const activeOptionId =
+    open && filtered.length > 0 ? `${listId}-option-${filtered[highlight]?.id ?? filtered[0].id}` : undefined;
+
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
@@ -75,6 +78,7 @@ export function WikiPageCombobox({
             aria-expanded={open}
             aria-controls={listId}
             aria-autocomplete="list"
+            aria-activedescendant={activeOptionId}
             aria-label={label}
             disabled={disabled}
             value={open ? query : (selected?.title ?? query)}
@@ -118,7 +122,7 @@ export function WikiPageCombobox({
           className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto surface-card-elevated border border-stroke-subtle rounded-lg shadow-elevated py-1"
         >
           {filtered.map((page, i) => (
-            <li key={page.id} role="option" aria-selected={value === page.id}>
+            <li key={page.id} id={`${listId}-option-${page.id}`} role="option" aria-selected={value === page.id}>
               <button
                 type="button"
                 className={clsx(

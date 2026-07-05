@@ -21,6 +21,7 @@ export function Button({
   size = "md",
   pill,
   className,
+  type = "button",
   children,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -30,7 +31,7 @@ export function Button({
 }) {
   return (
     <button
-      type="button"
+      type={type}
       className={clsx(variantClass[variant], sizeClass[size], pill && "btn-pill", className)}
       {...props}
     >

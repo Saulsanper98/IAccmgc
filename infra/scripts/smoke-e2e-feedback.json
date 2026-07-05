@@ -1,0 +1,1 @@
+{"rating":"down","correction":"La respuesta correcta es: conectar por SSH al host Openmediavault, entrar al contenedor wikijs con docker exec y ejecutar nginx -s reload. Si no responde, reiniciar el contenedor wikijs desde Portainer (stack wikijs, puerto 8181)."}

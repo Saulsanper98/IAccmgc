@@ -8,6 +8,7 @@ export function EmptyState({
   actionLabel,
   onAction,
   className,
+  compact,
 }: {
   icon?: React.ReactNode;
   title: string;
@@ -15,25 +16,34 @@ export function EmptyState({
   actionLabel?: string;
   onAction?: () => void;
   className?: string;
+  compact?: boolean;
 }) {
   return (
     <div
       className={clsx(
-        "flex flex-col items-center justify-center text-center py-12 px-6",
+        "flex flex-col items-center justify-center text-center",
+        compact ? "py-6 px-4" : "py-12 px-6",
         className,
       )}
     >
       {icon && (
-        <div className="mb-4 text-text-muted opacity-80" aria-hidden>
+        <div className={clsx("text-text-muted opacity-80", compact ? "mb-2" : "mb-4")} aria-hidden>
           {icon}
         </div>
       )}
-      <h3 className="text-base font-medium text-text-primary">{title}</h3>
+      <h3 className={clsx("font-medium text-text-primary", compact ? "text-sm" : "text-base")}>{title}</h3>
       {description && (
-        <p className="text-sm text-text-secondary mt-2 max-w-sm leading-relaxed">{description}</p>
+        <p
+          className={clsx(
+            "text-text-secondary mt-2 max-w-sm leading-relaxed",
+            compact ? "text-xs" : "text-sm",
+          )}
+        >
+          {description}
+        </p>
       )}
       {actionLabel && onAction && (
-        <Button variant="secondary" className="mt-6" onClick={onAction}>
+        <Button variant="secondary" size={compact ? "sm" : "md"} className={compact ? "mt-4" : "mt-6"} onClick={onAction}>
           {actionLabel}
         </Button>
       )}

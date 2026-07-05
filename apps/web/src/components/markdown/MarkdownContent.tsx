@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import clsx from "clsx";
-import { IconCheck, IconCopy } from "@/components/ui/Icons";
+import { IconCheck, IconChevronDown, IconCopy } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/ToastProvider";
 import type { Citation } from "@/lib/chat-types";
 import { stripHtml } from "@/lib/strip-html";
@@ -23,11 +23,16 @@ function languageLabel(className?: string): string | null {
   return match ? match[1] : null;
 }
 
+const CODE_COLLAPSE_LINES = 20;
+
 function CodeBlock({ children, className }: { children: React.ReactNode; className?: string }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const code = String(children).replace(/\n$/, "");
   const lang = languageLabel(className);
+  const lineCount = code.split("\n").length;
+  const isLong = lineCount > CODE_COLLAPSE_LINES;
 
   async function copy() {
     await navigator.clipboard.writeText(code);
@@ -41,16 +46,34 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
       {lang && (
         <div className="flex items-center justify-between px-3 py-1.5 border-b border-stroke-subtle bg-surface-2/60">
           <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">{lang}</span>
+          {isLong && (
+            <span className="text-[10px] text-text-muted tabular-nums">{lineCount} líneas</span>
+          )}
         </div>
       )}
       <pre
         className={clsx(
-          "hljs overflow-x-auto m-0 p-3 pr-11 text-xs leading-relaxed max-h-[420px] overflow-y-auto",
+          "hljs overflow-x-auto m-0 p-3 pr-11 text-xs leading-relaxed",
+          isLong && !expanded && "max-h-[320px] overflow-y-hidden",
+          (!isLong || expanded) && "max-h-[420px] overflow-y-auto",
           className,
         )}
       >
         <code>{children}</code>
       </pre>
+      {isLong && !expanded && (
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface-1 to-transparent pointer-events-none" />
+      )}
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full py-1.5 text-[11px] text-link hover:bg-surface-2/60 border-t border-stroke-subtle inline-flex items-center justify-center gap-1"
+        >
+          <IconChevronDown className={clsx("w-3.5 h-3.5 transition-transform", expanded && "rotate-180")} />
+          {expanded ? "Mostrar menos" : `Mostrar ${lineCount - CODE_COLLAPSE_LINES} líneas más`}
+        </button>
+      )}
       <button
         type="button"
         onClick={copy}

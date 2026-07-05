@@ -161,4 +161,7 @@ Documentado en `fase-b-drift.md` (Fase 6). Interfaz `InfraProvider` para conecto
 | Chat RAG (búsqueda híbrida + SSE + citas) | ✅ |
 | Salud documental (detectores + triaje) | ✅ |
 | Runbooks (generación + editor + sesiones) | ✅ |
+| Instrucciones del asistente + Q&A validados | ✅ |
 | Diseño Fase B drift (`docs/fase-b-drift.md`) | ✅ |
+
+> Estado funcional detallado y hoja de ruta: **`docs/estado-y-roadmap.md`**

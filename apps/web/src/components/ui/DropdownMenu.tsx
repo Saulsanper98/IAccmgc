@@ -22,7 +22,13 @@ export function DropdownMenu({
   label?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => {
+    if (open) setActiveIndex(0);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +40,31 @@ export function DropdownMenu({
     }
 
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      if (items.length === 0) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveIndex((i) => (i + 1) % items.length);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((i) => (i - 1 + items.length) % items.length);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        setActiveIndex(0);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        setActiveIndex(items.length - 1);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        const item = items[activeIndex];
+        if (item) {
+          setOpen(false);
+          item.onClick();
+        }
+      }
     }
 
     document.addEventListener("mousedown", onPointerDown);
@@ -43,7 +73,11 @@ export function DropdownMenu({
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open]);
+  }, [open, items, activeIndex]);
+
+  useEffect(() => {
+    if (open) itemRefs.current[activeIndex]?.focus();
+  }, [open, activeIndex]);
 
   return (
     <div className="relative inline-flex" ref={ref}>
@@ -68,18 +102,24 @@ export function DropdownMenu({
             "top-full mt-1",
           )}
         >
-          {items.map((item) => (
+          {items.map((item, index) => (
             <button
               key={item.label}
+              ref={(el) => {
+                itemRefs.current[index] = el;
+              }}
               type="button"
               role="menuitem"
+              tabIndex={index === activeIndex ? 0 : -1}
               onClick={() => {
                 setOpen(false);
                 item.onClick();
               }}
+              onMouseEnter={() => setActiveIndex(index)}
               className={clsx(
                 "list-row w-full text-sm rounded-md !min-h-[36px]",
                 item.destructive && "text-status-error",
+                index === activeIndex && "bg-surface-2",
               )}
             >
               {item.label}

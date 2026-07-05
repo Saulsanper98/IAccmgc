@@ -5,10 +5,12 @@ import type { ChatMessage, Citation } from "@/lib/chat-types";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { CitationChips } from "./CitationCards";
 import { AssistantMessageFooter } from "./AssistantMessageFooter";
+import { ValidatedQaBadge } from "./ValidatedQaBadge";
 import { UserMessageActions } from "./MessageActions";
 import { ChatPhaseStepper, RagProgressIndicator } from "./ChatPhaseStepper";
 import { formatRelativeTime, type RegenerateMode } from "@/lib/format";
 import { friendlyChatStatus } from "@/lib/chat-status";
+import { useLazyMount } from "@/hooks/useLazyMount";
 import clsx from "clsx";
 
 interface ChatMessageBubbleProps {
@@ -28,6 +30,7 @@ interface ChatMessageBubbleProps {
   showDisclaimer?: boolean;
   wikiUrl?: string | null;
   isLastInThread?: boolean;
+  conversationId?: string;
 }
 
 export function ChatMessageBubble({
@@ -47,6 +50,7 @@ export function ChatMessageBubble({
   showDisclaimer,
   wikiUrl,
   isLastInThread,
+  conversationId,
 }: ChatMessageBubbleProps) {
   const isUser = message.role === "user";
   const citations = message.citations ?? [];
@@ -54,6 +58,8 @@ export function ChatMessageBubble({
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(message.content);
   const editRef = useRef<HTMLTextAreaElement>(null);
+  const { ref: lazyRef, mounted: lazyMounted } = useLazyMount();
+  const renderMarkdown = isStreaming || isPending || lazyMounted;
 
   const wikiHomeUrl =
     wikiUrl ??
@@ -86,10 +92,16 @@ export function ChatMessageBubble({
   }
 
   return (
-    <div className={clsx("group w-full", isUser ? "flex justify-end" : "")}>
+    <div
+      id={message.id !== "streaming" ? `msg-${message.id}` : undefined}
+      className={clsx("group w-full scroll-mt-24", isUser ? "flex justify-end" : "")}
+    >
       <div className={clsx("min-w-0 w-full", isUser ? "max-w-[85%] ml-auto" : "")}>
         {!isUser && (
-          <p className="text-[10px] font-medium text-text-muted mb-1 md:hidden meta-caption">WikiBridge</p>
+          <div className="flex items-center gap-1.5 mb-1">
+            <img src="/favicon.svg" alt="" width={14} height={14} className="rounded-sm shrink-0" aria-hidden />
+            <p className="meta-caption font-medium">WikiBridge</p>
+          </div>
         )}
 
         <div
@@ -163,12 +175,16 @@ export function ChatMessageBubble({
               )}
 
               {!!message.content && (
-                <div>
-                  <MarkdownContent
-                    content={message.content}
-                    onCitationClick={onCitationClick}
-                    citations={citations as Citation[]}
-                  />
+                <div ref={lazyRef}>
+                  {renderMarkdown ? (
+                    <MarkdownContent
+                      content={message.content}
+                      onCitationClick={onCitationClick}
+                      citations={citations as Citation[]}
+                    />
+                  ) : (
+                    <div className="h-16 rounded-lg bg-surface-2/60 animate-pulse" aria-hidden />
+                  )}
                   {isStreaming && (
                     <span
                       className="inline-block w-0.5 h-4 ml-0.5 bg-text-secondary motion-safe:animate-pulse align-middle"
@@ -202,10 +218,15 @@ export function ChatMessageBubble({
                 </p>
               )}
 
+              {message.used_validated_qa && message.used_validated_qa.length > 0 && !isStreaming && !isPending && (
+                <ValidatedQaBadge items={message.used_validated_qa} />
+              )}
+
               {message.id && message.id !== "streaming" && !isStreaming && !isPending && (
                 <AssistantMessageFooter
                   messageId={message.id}
                   content={message.content}
+                  conversationId={conversationId}
                   onRegenerate={onRegenerate}
                   latencyMs={message.latency_ms}
                   model={message.model}
@@ -218,6 +239,8 @@ export function ChatMessageBubble({
         {isUser && !editing && (
           <UserMessageActions
             content={message.content}
+            messageId={message.id}
+            conversationId={conversationId}
             onEdit={onEditUser ? () => onEditUser(message.content) : undefined}
             onStartEdit={() => {
               setEditValue(message.content);

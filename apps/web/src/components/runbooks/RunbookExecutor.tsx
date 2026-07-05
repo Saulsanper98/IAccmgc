@@ -7,6 +7,7 @@ import { Accordion } from "@/components/ui/Accordion";
 import { Breadcrumb } from "@/components/ui/Breadcrumb";
 import { Card } from "@/components/ui/Card";
 import { StepStatusBadge } from "@/components/ui/Badge";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/ToastProvider";
 
 interface Step {
@@ -48,6 +49,7 @@ export function RunbookExecutor({
   const [session, setSession] = useState<SessionData | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [finishConfirm, setFinishConfirm] = useState<"completed" | "aborted" | null>(null);
 
   const uniqueVars = useMemo(() => {
     const raw = variables.length
@@ -74,6 +76,17 @@ export function RunbookExecutor({
   const allDone = activeSteps.every((s) => s.status);
   const progress = Math.round((completedCount / activeSteps.length) * 100);
   const versionLabel = `v${runbookVersion} · ${activeSteps.length} pasos`;
+
+  const checkpointNote = currentStep ? (notes[currentStep.id] ?? "").trim() : "";
+  const checkpointBlocked =
+    !!currentStep?.is_checkpoint && currentStep && !checkpointNote;
+
+  const summaryStats = useMemo(() => {
+    const done = activeSteps.filter((s) => s.status === "done").length;
+    const skipped = activeSteps.filter((s) => s.status === "skipped").length;
+    const failed = activeSteps.filter((s) => s.status === "failed").length;
+    return { done, skipped, failed, total: activeSteps.length };
+  }, [activeSteps]);
 
   async function startSession() {
     setLoading(true);
@@ -155,6 +168,7 @@ export function RunbookExecutor({
       toast(err instanceof Error ? err.message : "Error", "error");
     } finally {
       setLoading(false);
+      setFinishConfirm(null);
     }
   }
 
@@ -218,7 +232,7 @@ export function RunbookExecutor({
           aria-label="Progreso del runbook"
         >
           <div
-            className="h-full bg-link transition-all duration-300"
+            className="h-full bg-[var(--color-link)] transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -236,17 +250,23 @@ export function RunbookExecutor({
             <p className="text-xs text-text-muted">Esperado: {currentStep.expected_result}</p>
           )}
           {currentStep.is_checkpoint && (
-            <label className="block text-sm">
-              <span className="text-text-muted text-xs">Nota de checkpoint (obligatoria)</span>
-              <input
+            <div className="block text-sm">
+              <label htmlFor={`checkpoint-note-${currentStep.id}`} className="text-text-muted text-xs">
+                Nota de checkpoint (obligatoria)
+              </label>
+              <textarea
                 id={`checkpoint-note-${currentStep.id}`}
                 value={notes[currentStep.id] ?? ""}
                 onChange={(e) => setNotes({ ...notes, [currentStep.id]: e.target.value })}
                 placeholder="Describe lo verificado en este punto"
-                className="input-field w-full text-sm mt-1"
+                className="input-field w-full text-sm mt-1 min-h-[72px]"
+                rows={3}
                 aria-required="true"
               />
-            </label>
+              {checkpointBlocked && (
+                <p className="text-xs text-status-warn mt-1">Completa la nota para marcar el paso como hecho.</p>
+              )}
+            </div>
           )}
           <div className="flex flex-wrap gap-2 pt-2">
             {completedCount > 0 && (
@@ -261,9 +281,10 @@ export function RunbookExecutor({
             )}
             <button
               type="button"
-              disabled={loading}
+              disabled={loading || checkpointBlocked}
               onClick={() => completeStep(currentStep.id, "done")}
               className="btn-primary btn-pill flex-1"
+              title={checkpointBlocked ? "La nota de checkpoint es obligatoria" : undefined}
             >
               Hecho
             </button>
@@ -289,10 +310,10 @@ export function RunbookExecutor({
 
       {allDone && (
         <div className="flex flex-col gap-2">
-          <button type="button" onClick={() => finish("completed")} className="btn-primary btn-pill">
+          <button type="button" onClick={() => setFinishConfirm("completed")} className="btn-primary btn-pill">
             Completar runbook
           </button>
-          <button type="button" onClick={() => finish("aborted")} className="btn-secondary">
+          <button type="button" onClick={() => setFinishConfirm("aborted")} className="btn-secondary">
             Abortar
           </button>
         </div>
@@ -310,6 +331,20 @@ export function RunbookExecutor({
           ))}
         </ol>
       </Accordion>
+
+      <ConfirmDialog
+        open={finishConfirm !== null}
+        title={finishConfirm === "aborted" ? "Abortar runbook" : "Completar runbook"}
+        message={
+          finishConfirm === "aborted"
+            ? `¿Abortar la ejecución de «${runbookTitle}»? Se registrará como abortada.`
+            : `Resumen: ${summaryStats.done} hechos, ${summaryStats.skipped} omitidos, ${summaryStats.failed} fallidos de ${summaryStats.total} pasos. ¿Finalizar la sesión?`
+        }
+        confirmLabel={finishConfirm === "aborted" ? "Abortar" : "Finalizar"}
+        variant={finishConfirm === "aborted" ? "danger" : "default"}
+        onConfirm={() => finishConfirm && void finish(finishConfirm)}
+        onCancel={() => setFinishConfirm(null)}
+      />
     </div>
   );
 }

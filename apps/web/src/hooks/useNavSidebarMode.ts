@@ -1,35 +1,78 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-export type NavSidebarMode = "collapsed" | "expanded";
+export type NavSidebarMode = "auto" | "collapsed" | "expanded";
 
 const STORAGE_KEY = "wikibridge-nav-mode";
+const HOVER_LEAVE_MS = 120;
 
 export function useNavSidebarMode() {
-  const [mode, setModeState] = useState<NavSidebarMode>("collapsed");
+  const [mode, setModeState] = useState<NavSidebarMode>("auto");
+  const [hovered, setHovered] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const leaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "collapsed" || stored === "expanded") {
+    if (stored === "auto" || stored === "collapsed" || stored === "expanded") {
       setModeState(stored);
-    } else if (stored === "auto") {
-      setModeState("collapsed");
-      localStorage.setItem(STORAGE_KEY, "collapsed");
+    }
+    setHydrated(true);
+  }, []);
+
+  const clearLeaveTimer = useCallback(() => {
+    if (leaveTimerRef.current !== null) {
+      clearTimeout(leaveTimerRef.current);
+      leaveTimerRef.current = null;
     }
   }, []);
 
-  const setMode = useCallback((next: NavSidebarMode) => {
-    setModeState(next);
-    localStorage.setItem(STORAGE_KEY, next);
-  }, []);
+  const setMode = useCallback(
+    (next: NavSidebarMode) => {
+      clearLeaveTimer();
+      setHovered(false);
+      setModeState(next);
+      localStorage.setItem(STORAGE_KEY, next);
+    },
+    [clearLeaveTimer],
+  );
 
-  const isExpanded = mode === "expanded";
+  const onNavEnter = useCallback(() => {
+    if (mode !== "auto") return;
+    clearLeaveTimer();
+    setHovered(true);
+  }, [mode, clearLeaveTimer]);
 
-  return { mode, setMode, isExpanded };
+  const onNavLeave = useCallback(() => {
+    if (mode !== "auto") return;
+    clearLeaveTimer();
+    leaveTimerRef.current = setTimeout(() => {
+      setHovered(false);
+      leaveTimerRef.current = null;
+    }, HOVER_LEAVE_MS);
+  }, [mode, clearLeaveTimer]);
+
+  useEffect(() => () => clearLeaveTimer(), [clearLeaveTimer]);
+
+  const isLayoutExpanded = mode === "expanded";
+  const isFlyout = mode === "auto" && hovered;
+  const navCollapsed = !isLayoutExpanded && !isFlyout;
+
+  return {
+    mode,
+    setMode,
+    hydrated,
+    isLayoutExpanded,
+    isFlyout,
+    navCollapsed,
+    onNavEnter,
+    onNavLeave,
+  };
 }
 
 export const NAV_MODE_LABELS: Record<NavSidebarMode, string> = {
+  auto: "Automático",
   collapsed: "Contraído",
   expanded: "Expandido",
 };

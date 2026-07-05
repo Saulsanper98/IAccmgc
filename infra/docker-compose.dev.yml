@@ -1,0 +1,6 @@
+# Desarrollo: monta apps/api (app + tests) en el contenedor API.
+# Uso: docker compose -f infra/docker-compose.yml -f infra/docker-compose.dev.yml up -d api
+services:
+  api:
+    volumes:
+      - ../apps/api:/app/apps/api:cached

@@ -1,6 +1,4 @@
-from datetime import date
-
-from app.services.chat import format_diary_answer, parse_diary_query
+from app.services.chat import format_diary_answer, local_today, parse_diary_query
 
 
 def test_parse_diary_query_today_sistemas():
@@ -8,7 +6,7 @@ def test_parse_diary_query_today_sistemas():
     assert result is not None
     dept, target = result
     assert dept == "sistemas"
-    assert target == date.today()
+    assert target == local_today()
 
 
 def test_parse_diary_query_yesterday_operadores():

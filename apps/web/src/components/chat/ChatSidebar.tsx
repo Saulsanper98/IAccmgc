@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ConversationSummary } from "@/lib/chat-types";
 import { getArchivedIds, getPinnedIds, toggleArchive, togglePin } from "@/lib/conversation-pins";
 import { DATE_GROUP_LABELS, getDateGroup, type DateGroup, formatRelativeTime } from "@/lib/format";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { IconEdit, IconPlus, IconSearch, IconTrash } from "@/components/ui/Icons";
+import { IconArchive, IconEdit, IconPin, IconPlus, IconSearch, IconTrash } from "@/components/ui/Icons";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
 import clsx from "clsx";
 
 interface ChatSidebarProps {
@@ -29,7 +30,7 @@ function HighlightTitle({ title, query }: { title: string; query: string }) {
   return (
     <>
       {title.slice(0, idx)}
-      <mark className="bg-accent/20 text-text-primary rounded px-0.5">{title.slice(idx, idx + q.length)}</mark>
+      <mark className="bg-link/15 text-text-primary rounded px-0.5">{title.slice(idx, idx + q.length)}</mark>
       {title.slice(idx + q.length)}
     </>
   );
@@ -51,6 +52,9 @@ export function ChatSidebar({
   const [renameValue, setRenameValue] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [pinVersion, setPinVersion] = useState(0);
+  const drawerRef = useRef<HTMLElement>(null);
+
+  useFocusTrap(open, drawerRef, onClose);
 
   const pinnedIds = useMemo(() => getPinnedIds(), [pinVersion]);
   const archivedIds = useMemo(() => getArchivedIds(), [pinVersion]);
@@ -96,6 +100,11 @@ export function ChatSidebar({
     setRenameValue("");
   }, []);
 
+  function saveRename(conv: ConversationSummary) {
+    onRename(conv.id, renameValue.trim() || conv.title);
+    cancelRename();
+  }
+
   function renderConv(conv: ConversationSummary) {
     return (
       <div
@@ -114,17 +123,21 @@ export function ChatSidebar({
               className="input-field text-sm py-1 w-full"
               aria-label="Nuevo título"
               onKeyDown={(e) => {
-                if (e.key === "Escape") cancelRename();
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  saveRename(conv);
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelRename();
+                }
               }}
             />
             <div className="flex gap-1.5">
               <button
                 type="button"
                 className="btn-primary btn-sm flex-1"
-                onClick={() => {
-                  onRename(conv.id, renameValue.trim() || conv.title);
-                  cancelRename();
-                }}
+                onClick={() => saveRename(conv)}
               >
                 Guardar
               </button>
@@ -132,6 +145,10 @@ export function ChatSidebar({
                 Cancelar
               </button>
             </div>
+            <p className="text-[10px] text-text-muted meta-caption">
+              <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[9px]">Enter</kbd> guardar ·{" "}
+              <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[9px]">Esc</kbd> cancelar
+            </p>
           </div>
         ) : (
           <>
@@ -145,9 +162,7 @@ export function ChatSidebar({
             >
               <p className="text-sm truncate flex items-center gap-1">
                 {pinnedIds.has(conv.id) && (
-                  <span className="text-accent shrink-0" aria-label="Fijada" title="Fijada">
-                    📌
-                  </span>
+                  <IconPin className="w-3 h-3 text-accent shrink-0" aria-label="Fijada" />
                 )}
                 <HighlightTitle title={conv.title} query={search} />
               </p>
@@ -162,8 +177,9 @@ export function ChatSidebar({
                 }}
                 className="p-1.5 text-text-muted hover:text-accent"
                 aria-label={pinnedIds.has(conv.id) ? "Desfijar" : "Fijar conversación"}
+                aria-pressed={pinnedIds.has(conv.id)}
               >
-                📌
+                <IconPin className={clsx("w-3.5 h-3.5", pinnedIds.has(conv.id) && "text-accent")} />
               </button>
               <button
                 type="button"
@@ -173,8 +189,9 @@ export function ChatSidebar({
                 }}
                 className="p-1.5 text-text-muted hover:text-text-primary"
                 aria-label={archivedIds.has(conv.id) ? "Restaurar" : "Archivar"}
+                aria-pressed={archivedIds.has(conv.id)}
               >
-                {archivedIds.has(conv.id) ? "↩" : "📦"}
+                <IconArchive className="w-3.5 h-3.5" />
               </button>
               <button
                 type="button"
@@ -214,6 +231,7 @@ export function ChatSidebar({
       />
 
       <aside
+        ref={drawerRef}
         className={clsx(
           "fixed inset-y-0 left-0 z-50 chat-history-drawer flex flex-col no-print",
           "surface-glass border-r border-stroke-subtle shadow-elevated animate-drawer-in",

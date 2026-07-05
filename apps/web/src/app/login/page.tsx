@@ -8,7 +8,7 @@ export const metadata: Metadata = { title: "Iniciar sesión" };
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; callbackUrl?: string }>;
+  searchParams: Promise<{ error?: string; callbackUrl?: string; sessionExpired?: string }>;
 }) {
   const session = await auth();
   if (session) {
@@ -27,12 +27,25 @@ export default async function LoginPage({
       <div className="flex-1 flex items-center justify-center p-6">
         <div id="login-form" className="w-full max-w-sm">
           <div className="text-center mb-10">
-            <p className="text-xs font-medium text-text-muted uppercase tracking-widest mb-3">CCMGC · Sistemas</p>
+            <img
+              src="/favicon.svg"
+              alt=""
+              width={56}
+              height={56}
+              className="mx-auto mb-4 rounded-2xl"
+              aria-hidden
+            />
+            <p className="text-xs font-medium text-text-muted uppercase tracking-widest mb-2">CCMGC · Sistemas</p>
             <h1 className="brand-title text-2xl font-semibold tracking-tight">WikiBridge</h1>
             <p className="text-text-secondary text-sm mt-2">Acceso al conocimiento vivo de tu wiki</p>
           </div>
 
-          <LoginForm authMode={authMode} hasError={!!params.error} />
+          <LoginForm
+            authMode={authMode}
+            errorCode={params.error}
+            callbackUrl={params.callbackUrl}
+            sessionExpired={params.sessionExpired === "1"}
+          />
 
           {authMode === "local" && (
             <p className="text-xs text-text-muted text-center mt-8 leading-relaxed">

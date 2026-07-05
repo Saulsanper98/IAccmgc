@@ -114,7 +114,17 @@ export const authConfig: NextAuthConfig = {
         return true;
       }
 
-      return isLoggedIn;
+      if (!isLoggedIn) {
+        const loginUrl = new URL("/login", nextUrl);
+        loginUrl.searchParams.set("sessionExpired", "1");
+        const callback = nextUrl.pathname + nextUrl.search;
+        if (callback !== "/") {
+          loginUrl.searchParams.set("callbackUrl", callback);
+        }
+        return Response.redirect(loginUrl);
+      }
+
+      return true;
     },
   },
   trustHost: true,

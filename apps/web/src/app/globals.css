@@ -65,6 +65,13 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+
+    [role="progressbar"],
+    [role="progressbar"] * {
+      animation-duration: revert !important;
+      animation-iteration-count: revert !important;
+      transition-duration: revert !important;
+    }
   }
 }
 
@@ -88,14 +95,6 @@
     backdrop-filter: blur(var(--blur-glass));
     -webkit-backdrop-filter: blur(var(--blur-glass));
     border: 1px solid var(--stroke-subtle);
-  }
-
-  .glass-panel {
-    @apply surface-card;
-  }
-
-  .glass-panel-elevated {
-    @apply surface-card-elevated;
   }
 
   .hairline {
@@ -151,6 +150,10 @@
 
   .btn-accent:hover:not(:disabled) {
     filter: brightness(1.06);
+  }
+
+  .btn-send {
+    @apply btn-accent;
   }
 
   .btn-secondary {
@@ -317,6 +320,12 @@
     font-size: var(--text-xs);
     line-height: var(--leading-normal);
     color: var(--text-muted);
+    font-family: var(--font-mono), ui-monospace, monospace;
+  }
+
+  kbd,
+  .tabular-nums {
+    font-family: var(--font-mono), ui-monospace, monospace;
   }
 
   .citation-chip:focus-visible {
@@ -363,6 +372,7 @@
     background: var(--surface-2);
     color: var(--text-primary);
     font-weight: 500;
+    box-shadow: inset 3px 0 0 var(--color-link);
   }
 
   .nav-pill-inactive {
@@ -384,10 +394,29 @@
     width: var(--nav-width-collapsed);
     transition: width 0.2s ease;
     overflow: hidden;
+    will-change: width;
+  }
+
+  .nav-sidebar-rail {
+    width: var(--nav-width-collapsed);
+  }
+
+  .nav-sidebar-flyout {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 45;
+    width: var(--nav-width);
+    background: var(--surface-0);
+    border-right: 1px solid var(--stroke-subtle);
+    box-shadow: var(--shadow-md);
+    pointer-events: auto;
   }
 
   .nav-sidebar-expanded {
     width: var(--nav-width);
+    box-shadow: var(--shadow-md);
   }
 
   .chat-history-drawer {
@@ -442,7 +471,7 @@
   aside,
   nav,
   .no-print,
-  button,
+  button:not(.print-keep),
   form {
     display: none !important;
   }
@@ -452,10 +481,32 @@
     color: black !important;
   }
 
-  .surface-card,
-  .glass-panel {
+  main,
+  .chat-print-root,
+  .chat-content-column {
+    display: block !important;
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
+  .chat-layout-full {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  .surface-card {
     border: 1px solid #ccc !important;
     background: white !important;
     box-shadow: none !important;
+  }
+
+  .message-body,
+  .markdown-content {
+    color: black !important;
+  }
+
+  a {
+    color: #000 !important;
+    text-decoration: underline;
   }
 }

@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { ChatMessage, Citation, ConversationSummary } from "@/lib/chat-types";
-import { contextualPrompts } from "@/lib/suggested-prompts";
+import type { ChatMessage, Citation, ConversationSummary, UsedValidatedQa } from "@/lib/chat-types";
 import { useSwipeFromEdge } from "@/hooks/useSwipeFromEdge";
 import { ChatInput } from "./ChatInput";
 import { ChatMessages } from "./ChatMessages";
@@ -11,6 +10,7 @@ import { ChatSidebar } from "./ChatSidebar";
 import { ChatHeader } from "./ChatHeader";
 import { exportConversationMarkdown, friendlyError, REGENERATE_SUFFIXES, type RegenerateMode } from "@/lib/format";
 import { truncateChatTitle } from "@/lib/chat-status";
+import { removeConversationPins } from "@/lib/conversation-pins";
 import { useToast } from "@/components/ui/ToastProvider";
 
 interface ChatWorkspaceProps {
@@ -19,6 +19,9 @@ interface ChatWorkspaceProps {
   initialMessages?: ChatMessage[];
   pageCount?: number | null;
   wikiUrl?: string | null;
+  lastSyncAt?: string | null;
+  userRole?: string;
+  isAdmin?: boolean;
 }
 
 const prefetchCache = new Map<string, ChatMessage[]>();
@@ -29,6 +32,9 @@ export function ChatWorkspace({
   initialMessages = [],
   pageCount,
   wikiUrl,
+  lastSyncAt,
+  userRole,
+  isAdmin: _isAdmin = false,
 }: ChatWorkspaceProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -51,8 +57,46 @@ export function ChatWorkspace({
   const loadAbortRef = useRef<AbortController | null>(null);
   const lastFailedMessageRef = useRef<string | null>(null);
   const queryProcessedRef = useRef(false);
+  const syncedInitialMessagesRef = useRef(initialMessages);
+  const syncedListRouteRef = useRef(conversationId);
+  const chatInputRef = useRef<HTMLTextAreaElement>(null);
+  const [slowConnection, setSlowConnection] = useState(false);
+  const [showSwipeHint, setShowSwipeHint] = useState(false);
 
   useSwipeFromEdge(useCallback(() => setHistoryOpen(true), []));
+
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem("wikibridge-swipe-hint-seen")) {
+        setShowSwipeHint(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!busy) {
+      setSlowConnection(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlowConnection(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        chatInputRef.current?.focus();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     setActiveConversationId(conversationId);
@@ -61,20 +105,27 @@ export function ChatWorkspace({
 
   useEffect(() => {
     if (conversationId === loadedConversationRef.current) {
-      if (initialMessages.length > 0) {
+      // Sync SSR props only when initialMessages changes (navigation), not when busy toggles.
+      if (initialMessages !== syncedInitialMessagesRef.current && initialMessages.length > 0) {
+        syncedInitialMessagesRef.current = initialMessages;
         setMessages(initialMessages);
       }
       return;
     }
-    if (!conversationId && loadedConversationRef.current && busy) return;
 
     loadAbortRef.current?.abort();
     const controller = new AbortController();
     loadAbortRef.current = controller;
 
-    loadedConversationRef.current = conversationId;
+    syncedInitialMessagesRef.current = initialMessages;
 
     if (!conversationId) {
+      // replaceState updates the URL to /chat/{id} without a Next.js navigation; keep messages.
+      const pathId = window.location.pathname.match(/^\/chat\/([^/]+)$/)?.[1];
+      if (pathId && pathId === loadedConversationRef.current) {
+        return;
+      }
+      loadedConversationRef.current = undefined;
       setMessages([]);
       setStreamingContent(undefined);
       setStreamingCitations(undefined);
@@ -84,6 +135,8 @@ export function ChatWorkspace({
       setChunksFound(null);
       return;
     }
+
+    loadedConversationRef.current = conversationId;
 
     const cached = prefetchCache.get(conversationId);
     if (cached) {
@@ -116,11 +169,13 @@ export function ChatWorkspace({
       });
 
     return () => controller.abort();
-  }, [conversationId, initialMessages, busy]);
+  }, [conversationId, initialMessages]);
 
   useEffect(() => {
+    if (syncedListRouteRef.current === conversationId) return;
+    syncedListRouteRef.current = conversationId;
     setConversations(initialConversations);
-  }, [initialConversations]);
+  }, [conversationId, initialConversations]);
 
   useEffect(() => {
     function onOffline() {
@@ -128,14 +183,6 @@ export function ChatWorkspace({
     }
     window.addEventListener("offline", onOffline);
     return () => window.removeEventListener("offline", onOffline);
-  }, []);
-
-  const refreshConversations = useCallback(async () => {
-    const response = await fetch("/api/chat/conversations");
-    if (response.ok) {
-      const data = await response.json();
-      setConversations(data.items ?? []);
-    }
   }, []);
 
   const prefetchConversation = useCallback((id: string) => {
@@ -154,19 +201,40 @@ export function ChatWorkspace({
       ? storedTitle
       : optimisticTitle ?? storedTitle ?? undefined;
 
+  function resetWelcomeState() {
+    loadedConversationRef.current = undefined;
+    syncedInitialMessagesRef.current = [];
+    setMessages([]);
+    setStreamingContent(undefined);
+    setStreamingCitations(undefined);
+    setError(null);
+    setStatusMessage(null);
+    setStatusPhase(null);
+    setChunksFound(null);
+    setActiveConversationId(undefined);
+    setOptimisticTitle(null);
+  }
+
   function handleNewChat() {
     abortRef.current?.abort();
     loadAbortRef.current?.abort();
     setHistoryOpen(false);
+    resetWelcomeState();
     router.push("/chat");
   }
 
   async function handleDelete(id: string) {
-    await fetch(`/api/chat/conversations/${id}`, { method: "DELETE" });
+    const response = await fetch(`/api/chat/conversations/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      toast("No se pudo eliminar la conversación", "error");
+      return;
+    }
     prefetchCache.delete(id);
-    await refreshConversations();
+    removeConversationPins(id);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
     toast("Conversación eliminada", "info");
     if (activeConversationId === id) {
+      resetWelcomeState();
       router.push("/chat");
     }
   }
@@ -178,7 +246,9 @@ export function ChatWorkspace({
       body: JSON.stringify({ title }),
     });
     if (response.ok) {
-      await refreshConversations();
+      setConversations((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, title, updated_at: new Date().toISOString() } : c)),
+      );
       toast("Conversación renombrada", "success");
     }
   }
@@ -275,6 +345,7 @@ export function ChatWorkspace({
       let assistantId = "";
       let latencyMs: number | null = null;
       let model: string | null = null;
+      let usedValidatedQa: UsedValidatedQa[] | undefined;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -318,6 +389,9 @@ export function ChatWorkspace({
             if (payload.cited_chunk_ids) {
               citedChunkIds = payload.cited_chunk_ids as string[];
             }
+            if (payload.used_validated_qa) {
+              usedValidatedQa = payload.used_validated_qa as UsedValidatedQa[];
+            }
           } else if (event === "error") {
             throw new Error((payload.message as string) ?? "Error en el stream");
           }
@@ -341,13 +415,16 @@ export function ChatWorkspace({
             cited_chunk_ids: citedChunkIds.length ? citedChunkIds : undefined,
             latency_ms: latencyMs,
             model,
+            used_validated_qa: usedValidatedQa,
             created_at: new Date().toISOString(),
           },
         ];
         if (convId) prefetchCache.set(convId, next);
         return next;
       });
-      await refreshConversations();
+      if (convId && !conversationId) {
+        router.replace(`/chat/${convId}`, { scroll: false });
+      }
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
       setStreamingContent(undefined);
@@ -403,6 +480,14 @@ export function ChatWorkspace({
     void handleSend(content);
   }
 
+  function handleCopyMarkdown() {
+    const md = exportConversationMarkdown(activeTitle ?? "Conversación", messages);
+    void navigator.clipboard.writeText(md).then(
+      () => toast("Markdown copiado al portapapeles", "success"),
+      () => toast("No se pudo copiar al portapapeles", "error"),
+    );
+  }
+
   function handleExport() {
     const md = exportConversationMarkdown(activeTitle ?? "Conversación", messages);
     const blob = new Blob([md], { type: "text/markdown" });
@@ -435,7 +520,11 @@ export function ChatWorkspace({
   }, [busy, messages.length]);
 
   const isEmpty = messages.length === 0 && !busy && !loadingMessages;
-  const welcomePrompts = contextualPrompts(pageCount);
+  const promptOptions = {
+    pageCount,
+    role: userRole,
+    recentTitles: conversations.map((c) => c.title),
+  };
 
   return (
     <>
@@ -450,41 +539,80 @@ export function ChatWorkspace({
         onPrefetch={prefetchConversation}
       />
 
-      <div className="chat-layout-full">
+      <div className="chat-layout-full chat-print-root">
+        <div className="hidden print:block px-6 py-4 border-b border-stroke-subtle">
+          <h1 className="text-lg font-semibold">{activeTitle ?? "Conversación"}</h1>
+          <p className="text-sm text-text-muted mt-1">WikiBridge · exportación imprimible</p>
+        </div>
         <ChatHeader
           title={activeTitle}
           pageCount={pageCount}
           hasMessages={messages.length > 0}
           historyOpen={historyOpen}
           onToggleHistory={() => setHistoryOpen((v) => !v)}
+          onNewChat={handleNewChat}
           onExport={messages.length > 0 ? handleExport : undefined}
+          onCopyMarkdown={messages.length > 0 ? handleCopyMarkdown : undefined}
+          onPrint={messages.length > 0 ? () => window.print() : undefined}
           loading={loadingMessages}
         />
 
-        {error && (
-          <div
-            className="mx-6 mt-4 surface-card p-3 text-status-error text-sm flex items-center justify-between gap-3 z-20"
-            role="alert"
-            aria-live="assertive"
-          >
-            <span>{error}</span>
-            <div className="flex gap-2 shrink-0">
-              {lastFailedMessageRef.current && (
-                <button
-                  type="button"
-                  className="btn-ghost text-xs"
-                  onClick={() => {
-                    setError(null);
-                    void handleSend(lastFailedMessageRef.current!);
-                  }}
-                >
-                  Reintentar
-                </button>
-              )}
-              <button type="button" className="btn-ghost text-xs" onClick={() => setError(null)}>
-                Cerrar
+        {showSwipeHint && (
+          <div className="chat-content-column px-4 md:px-6 mt-2 no-print">
+            <p className="text-[11px] text-text-muted meta-caption text-center md:hidden">
+              Desliza desde el borde izquierdo para abrir el historial
+              <button
+                type="button"
+                className="ml-2 text-link hover:underline"
+                onClick={() => {
+                  setShowSwipeHint(false);
+                  try {
+                    localStorage.setItem("wikibridge-swipe-hint-seen", "1");
+                  } catch {
+                    /* ignore */
+                  }
+                }}
+              >
+                Entendido
               </button>
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <div className="chat-content-column px-4 md:px-6 mt-4 no-print">
+            <div
+              className="surface-card p-3 text-status-error text-sm flex items-center justify-between gap-3 z-20"
+              role="alert"
+              aria-live="assertive"
+            >
+              <span>{error}</span>
+              <div className="flex gap-2 shrink-0">
+                {lastFailedMessageRef.current && (
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    onClick={() => {
+                      setError(null);
+                      void handleSend(lastFailedMessageRef.current!);
+                    }}
+                  >
+                    Reintentar
+                  </button>
+                )}
+                <button type="button" className="btn-ghost text-xs" onClick={() => setError(null)}>
+                  Cerrar
+                </button>
+              </div>
             </div>
+          </div>
+        )}
+
+        {slowConnection && busy && (
+          <div className="chat-content-column px-4 md:px-6 mt-2 no-print">
+            <p className="text-[11px] text-text-muted meta-caption text-center" role="status">
+              La respuesta tarda más de lo habitual. Comprueba tu conexión o espera un momento.
+            </p>
           </div>
         )}
 
@@ -498,38 +626,27 @@ export function ChatWorkspace({
           chunksFound={chunksFound}
           pageCount={pageCount}
           wikiUrl={wikiUrl}
+          lastSyncAt={lastSyncAt}
           loadingMessages={loadingMessages}
-          suggestedPrompts={welcomePrompts}
+          promptOptions={promptOptions}
           onSuggestedPrompt={(p) => void handleSend(p)}
           onRegenerate={handleRegenerate}
           onEditUser={handleEditUser}
           onRetry={handleRetry}
-          emptyStateInput={
-            isEmpty ? (
-              <ChatInput
-                onSend={handleSend}
-                onStop={handleStop}
-                disabled={busy}
-                busy={busy}
-                initialValue={editDraft}
-                conversationId={activeConversationId}
-                size="large"
-                centered
-              />
-            ) : undefined
-          }
+          conversationId={activeConversationId}
         />
 
-        {!isEmpty && (
-          <ChatInput
-            onSend={handleSend}
-            onStop={handleStop}
-            disabled={busy}
-            busy={busy}
-            initialValue={editDraft}
-            conversationId={activeConversationId}
-          />
-        )}
+        {/* CHAT-06: cola de mensajes mientras genera requiere soporte backend (endpoint batch/stream). */}
+        <ChatInput
+          inputRef={chatInputRef}
+          onSend={handleSend}
+          onStop={handleStop}
+          busy={busy}
+          initialValue={editDraft}
+          conversationId={activeConversationId}
+          size={isEmpty ? "large" : "default"}
+          centered={isEmpty}
+        />
       </div>
     </>
   );

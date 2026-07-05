@@ -2,13 +2,15 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AuthenticatedUser, get_authenticated_user
 from app.config import Settings, get_settings
+from app.db.models import QaFeedbackRating
 from app.db.session import get_db
 from app.services.chat import ChatService
+from app.services.validated_qa import ValidatedQAService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -26,8 +28,24 @@ class SendMessageRequest(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    rating: int = Field(description="1 for positive, -1 for negative")
-    comment: str | None = None
+    rating: QaFeedbackRating | int | str
+    correction: str | None = Field(default=None, max_length=8000)
+    comment: str | None = Field(default=None, max_length=500)  # legacy UI (Fase 3 retira)
+    legacy: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_feedback(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        raw_rating = data.get("rating")
+        if raw_rating in (1, "1", -1, "-1"):
+            data["legacy"] = True
+        if raw_rating in (1, "1"):
+            data["rating"] = QaFeedbackRating.UP.value
+        elif raw_rating in (-1, "-1"):
+            data["rating"] = QaFeedbackRating.DOWN.value
+        return data
 
 
 @router.get("/conversations")
@@ -128,10 +146,15 @@ async def submit_feedback(
     session: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> dict:
-    service = ChatService(session, settings)
+    service = ValidatedQAService(session, settings)
     try:
-        result = await service.submit_feedback(
-            message_id, user.user_id, body.rating, body.comment
+        result = await service.submit_message_feedback(
+            message_id,
+            user.user_id,
+            body.rating,
+            correction=body.correction,
+            comment=body.comment,
+            legacy=body.legacy,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

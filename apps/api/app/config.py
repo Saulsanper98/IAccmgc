@@ -1,6 +1,24 @@
 from functools import lru_cache
 
+from typing import Literal
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def parse_incremental_sync_hours(raw: str) -> list[int]:
+    """Parse '2,8,14,20' into sorted unique hours (0–23)."""
+    hours: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        hour = int(part)
+        if not 0 <= hour <= 23:
+            raise ValueError(f"Hora de sync inválida: {hour} (use 0–23)")
+        if hour not in hours:
+            hours.append(hour)
+    return sorted(hours) if hours else [2, 8, 14, 20]
 
 
 class Settings(BaseSettings):
@@ -44,8 +62,19 @@ class Settings(BaseSettings):
     chunk_min_tokens: int = 300
     chunk_max_tokens: int = 600
     chunk_overlap_tokens: int = 50
-    nightly_sync_cron_hour: int = 2
+    incremental_sync_cron_hours: str = "2,8,14,20"
+    incremental_sync_cron_minute: int = 0
     ingest_job_timeout_seconds: int = 7200
+
+    @field_validator("incremental_sync_cron_minute")
+    @classmethod
+    def validate_sync_minute(cls, value: int) -> int:
+        if not 0 <= value <= 59:
+            raise ValueError("incremental_sync_cron_minute debe estar entre 0 y 59")
+        return value
+
+    def incremental_sync_hours(self) -> list[int]:
+        return parse_incremental_sync_hours(self.incremental_sync_cron_hours)
 
     # RAG / Chat
     rag_search_top_k: int = 10
@@ -55,6 +84,17 @@ class Settings(BaseSettings):
     rag_diary_max_chars: int = 6000
     rrf_k: int = 60
     query_embedding_cache_ttl_seconds: int = 300
+
+    # Validated Q&A learning circuit
+    validated_qa_recall_threshold: float = 0.70
+    validated_qa_verify_bypass: float = 0.98
+    validated_qa_verify_model: str = "qwen2.5:7b-instruct"
+    validated_qa_verify_timeout_seconds: float = 30.0
+    validated_qa_max_results: int = 2
+    # direct: respuesta almacenada sin LLM de chat | inject: inyectar en system prompt (legacy)
+    validated_qa_mode: Literal["direct", "inject"] = "direct"
+    # Deprecated: use validated_qa_recall_threshold (kept for existing .env files)
+    validated_qa_similarity_threshold: float | None = None
 
     # Staleness / health (Phase 3+)
     staleness_procedure_days: int = 180

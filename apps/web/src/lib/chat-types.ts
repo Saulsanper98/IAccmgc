@@ -8,6 +8,14 @@ export interface Citation {
   excerpt: string;
 }
 
+export interface UsedValidatedQa {
+  id: string;
+  validated_at?: string | null;
+  validated_date?: string;
+  similarity?: number;
+  verification?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -17,6 +25,7 @@ export interface ChatMessage {
   latency_ms?: number | null;
   model?: string | null;
   created_at?: string;
+  used_validated_qa?: UsedValidatedQa[];
 }
 
 export interface ConversationSummary {

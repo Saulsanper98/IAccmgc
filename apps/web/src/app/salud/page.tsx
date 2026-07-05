@@ -116,11 +116,20 @@ export default async function SaludPage() {
 
       {summary && (
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-labelledby="salud-stats-heading">
+
+          <h2 id="salud-stats-heading" className="sr-only">Resumen de salud documental</h2>
 
           <Card className="sm:col-span-2 lg:col-span-1 flex items-center">
 
-            <ScoreRing score={summary.health_score} />
+            <ScoreRing
+              score={summary.health_score}
+              lastScanAt={
+                summary.recent_scans?.find((s: { status: string; finished_at?: string | null }) =>
+                  s.status === "completed" && s.finished_at,
+                )?.finished_at ?? null
+              }
+            />
 
           </Card>
 
@@ -136,9 +145,9 @@ export default async function SaludPage() {
 
 
 
-      <section>
+      <section aria-labelledby="salud-findings-heading">
 
-        <h2 className="section-label mb-4">Hallazgos prioritarios</h2>
+        <h2 id="salud-findings-heading" className="section-label mb-4">Hallazgos prioritarios</h2>
 
         {findingsError && (
 
@@ -159,6 +168,8 @@ export default async function SaludPage() {
             scanInProgress={scanActive}
 
             byDetector={summary?.by_detector}
+
+            bySeverity={summary?.by_severity}
 
             isAdmin={isAdmin}
 

@@ -34,11 +34,14 @@ class OllamaClient:
         self._max_continue_rounds = settings.ollama_max_continue_rounds
         self._semaphore = asyncio.Semaphore(settings.ollama_max_concurrency)
 
-    def _chat_options(self, num_predict: int | None = None) -> dict:
-        return {
+    def _chat_options(self, num_predict: int | None = None, *, temperature: float | None = None) -> dict:
+        options = {
             **self._base_options,
             "num_predict": num_predict if num_predict is not None else self._default_num_predict,
         }
+        if temperature is not None:
+            options["temperature"] = temperature
+        return options
 
     async def embed_text(self, text: str) -> list[float]:
         async with self._semaphore:
@@ -175,22 +178,29 @@ class OllamaClient:
         messages: list[dict[str, str]],
         system: str = "",
         *,
+        model: str | None = None,
         num_predict: int | None = None,
+        timeout: float | None = None,
+        response_format: str | None = None,
+        temperature: float | None = None,
     ) -> str:
         """Single-shot multi-turn chat completion (non-streaming)."""
-        options = self._chat_options(num_predict)
+        options = self._chat_options(num_predict, temperature=temperature)
+        payload: dict = {
+            "model": model or self._chat_model,
+            "messages": messages,
+            "system": system,
+            "stream": False,
+            "keep_alive": self._keep_alive,
+            "options": options,
+        }
+        if response_format is not None:
+            payload["format"] = response_format
         async with self._semaphore:
-            async with httpx.AsyncClient(timeout=180.0) as client:
+            async with httpx.AsyncClient(timeout=timeout or 180.0) as client:
                 response = await client.post(
                     f"{self._base_url}/api/chat",
-                    json={
-                        "model": self._chat_model,
-                        "messages": messages,
-                        "system": system,
-                        "stream": False,
-                        "keep_alive": self._keep_alive,
-                        "options": options,
-                    },
+                    json=payload,
                 )
                 response.raise_for_status()
                 return response.json().get("message", {}).get("content", "").strip()

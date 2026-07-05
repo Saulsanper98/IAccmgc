@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Card } from "@/components/ui/Card";
 import { IconSearch } from "@/components/ui/Icons";
 
 interface PageRow {
@@ -12,6 +11,9 @@ interface PageRow {
   wiki_url: string;
 }
 
+type SortKey = "title" | "chunk_count";
+type SortDir = "asc" | "desc";
+
 export function AdminPagesTable({
   items,
   total,
@@ -21,18 +23,37 @@ export function AdminPagesTable({
 }) {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  const [sortKey, setSortKey] = useState<SortKey>("title");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
   const pageSize = 20;
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return items;
-    return items.filter(
-      (p) => p.title.toLowerCase().includes(q) || p.path.toLowerCase().includes(q),
-    );
-  }, [items, search]);
+    const list = (q
+      ? items.filter((p) => p.title.toLowerCase().includes(q) || p.path.toLowerCase().includes(q))
+      : [...items]
+    ).slice();
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "title") cmp = a.title.localeCompare(b.title, "es");
+      else cmp = a.chunk_count - b.chunk_count;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return list;
+  }, [items, search, sortKey, sortDir]);
 
   const pageItems = filtered.slice(page * pageSize, (page + 1) * pageSize);
   const totalPages = Math.ceil(filtered.length / pageSize);
+  const searchActive = search.trim().length > 0;
+  const filteringLoadedBatch = searchActive && filtered.length < total;
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(key);
+      setSortDir(key === "title" ? "asc" : "desc");
+    }
+  }
 
   return (
     <div>
@@ -51,16 +72,40 @@ export function AdminPagesTable({
         />
       </div>
 
+      {filteringLoadedBatch && (
+        <p className="px-3 py-2 text-xs text-status-warn border-b border-stroke-subtle bg-status-warn/5">
+          La búsqueda solo aplica sobre las {items.length} páginas cargadas ({total} en total).{" "}
+          <a href="#admin-stats" className="text-link hover:underline">
+            Ejecuta un sync
+          </a>{" "}
+          o recarga tras indexar más contenido.
+        </p>
+      )}
+
       {/* Desktop */}
       <div className="hidden md:block overflow-x-auto max-h-[480px] overflow-y-auto">
         <table className="w-full text-sm">
           <thead className="text-text-muted border-b border-stroke-subtle sticky top-0 bg-surface-2 z-10">
             <tr>
-              <th className="text-left p-3 font-medium">Título</th>
-              <th className="text-left p-3 font-medium">Ruta</th>
-              <th className="text-left p-3 font-medium">Chunks</th>
-              <th className="text-left p-3 font-medium">Wiki</th>
-              <th className="text-left p-3 font-medium">Chat</th>
+              <th scope="col" className="text-left p-3 font-medium">
+                <button type="button" className="hover:text-text-primary" onClick={() => toggleSort("title")}>
+                  Título {sortKey === "title" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </button>
+              </th>
+              <th scope="col" className="text-left p-3 font-medium">
+                Ruta
+              </th>
+              <th scope="col" className="text-left p-3 font-medium">
+                <button type="button" className="hover:text-text-primary" onClick={() => toggleSort("chunk_count")}>
+                  Chunks {sortKey === "chunk_count" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </button>
+              </th>
+              <th scope="col" className="text-left p-3 font-medium">
+                Wiki
+              </th>
+              <th scope="col" className="text-left p-3 font-medium">
+                Chat
+              </th>
             </tr>
           </thead>
           <tbody>

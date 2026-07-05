@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import clsx from "clsx";
 import type { NavSidebarMode } from "@/hooks/useNavSidebarMode";
 import { NAV_MODE_LABELS } from "@/hooks/useNavSidebarMode";
-import { IconNavCollapsed, IconNavExpanded } from "@/components/ui/Icons";
+import { useFocusTrap } from "@/hooks/useFocusTrap";
+import { IconNavAuto, IconNavCollapsed, IconNavExpanded } from "@/components/ui/Icons";
 
-const MODES: NavSidebarMode[] = ["collapsed", "expanded"];
+const MODES: NavSidebarMode[] = ["auto", "collapsed", "expanded"];
 
 const MODE_ICONS = {
+  auto: IconNavAuto,
   collapsed: IconNavCollapsed,
   expanded: IconNavExpanded,
 } as const;
@@ -23,7 +25,11 @@ export function NavSidebarModeToggle({
   collapsed: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const ActiveIcon = MODE_ICONS[mode];
+
+  const close = () => setOpen(false);
+  useFocusTrap(open, menuRef, close, { restoreFocus: false });
 
   return (
     <div className="relative">
@@ -48,9 +54,10 @@ export function NavSidebarModeToggle({
             type="button"
             className="fixed inset-0 z-40 cursor-default"
             aria-label="Cerrar menú de modo"
-            onClick={() => setOpen(false)}
+            onClick={close}
           />
           <div
+            ref={menuRef}
             className={clsx(
               "absolute bottom-full mb-1 surface-card-elevated p-1 shadow-elevated z-50 min-w-[11rem] animate-toast-in",
               collapsed ? "left-0" : "left-0 right-0",
@@ -66,7 +73,7 @@ export function NavSidebarModeToggle({
                   role="menuitem"
                   onClick={() => {
                     onChange(m);
-                    setOpen(false);
+                    close();
                   }}
                   className={clsx(
                     "list-row w-full text-sm rounded-md !min-h-[36px]",

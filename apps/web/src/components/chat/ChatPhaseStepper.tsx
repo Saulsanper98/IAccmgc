@@ -4,9 +4,9 @@ import clsx from "clsx";
 import { phaseFromStatusMessage, statusMentionsChunks } from "@/lib/chat-status";
 
 const PHASES = [
-  { key: "embedding", label: "Embedding" },
-  { key: "searching", label: "Búsqueda" },
-  { key: "generating", label: "Generación" },
+  { key: "embedding", label: "Generando embedding" },
+  { key: "searching", label: "Buscando contexto" },
+  { key: "generating", label: "Generando respuesta" },
 ] as const;
 
 export function ChatPhaseStepper({

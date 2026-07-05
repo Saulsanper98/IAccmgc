@@ -1,10 +1,11 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Enum,
     ForeignKey,
@@ -116,10 +117,14 @@ class Message(Base):
     )
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     model: Mapped[str | None] = mapped_column(String(128))
+    used_validated_qa: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
     feedback_entries: Mapped[list["Feedback"]] = relationship(
+        back_populates="message", cascade="all, delete-orphan"
+    )
+    qa_feedback_entries: Mapped[list["QaFeedback"]] = relationship(
         back_populates="message", cascade="all, delete-orphan"
     )
 
@@ -139,6 +144,76 @@ class Feedback(Base):
     message: Mapped["Message"] = relationship(back_populates="feedback_entries")
 
     __table_args__ = (UniqueConstraint("message_id", "user_id", name="uq_feedback_message_user"),)
+
+
+class QaFeedbackRating(str, enum.Enum):
+    UP = "up"
+    DOWN = "down"
+
+
+class ValidatedQaStatus(str, enum.Enum):
+    PENDING = "pending"
+    VALIDATED = "validated"
+    REJECTED = "rejected"
+
+
+class QaFeedback(Base):
+    __tablename__ = "qa_feedback"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_message_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    rating: Mapped[QaFeedbackRating] = mapped_column(
+        Enum(QaFeedbackRating, name="qa_feedback_rating", values_callable=_enum_values),
+        nullable=False,
+    )
+    correction: Mapped[str | None] = mapped_column(Text)
+    is_legacy: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=func.false()
+    )
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    message: Mapped["Message"] = relationship(back_populates="qa_feedback_entries")
+    validated_qa_entries: Mapped[list["ValidatedQa"]] = relationship(
+        back_populates="source_feedback"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("chat_message_id", "created_by", name="uq_qa_feedback_message_user"),
+    )
+
+
+class ValidatedQa(Base):
+    __tablename__ = "validated_qa"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    question_embedding = mapped_column(Vector(settings.embedding_dim), nullable=False)
+    answer: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ValidatedQaStatus] = mapped_column(
+        Enum(ValidatedQaStatus, name="validated_qa_status", values_callable=_enum_values),
+        nullable=False,
+        default=ValidatedQaStatus.PENDING,
+        index=True,
+    )
+    source_feedback_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("qa_feedback.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    validated_by: Mapped[str | None] = mapped_column(String(128))
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False, server_default=func.current_date())
+    valid_until: Mapped[date | None] = mapped_column(Date)
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    source_feedback: Mapped["QaFeedback | None"] = relationship(back_populates="validated_qa_entries")
 
 
 class IngestJob(Base):

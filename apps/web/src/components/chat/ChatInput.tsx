@@ -2,14 +2,27 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconArrowUp, IconStop } from "@/components/ui/Icons";
+import { addPromptHistory, getPromptHistory } from "@/lib/prompt-history";
 import clsx from "clsx";
 
 const MAX_CHARS = 8000;
 const MAX_TEXTAREA_HEIGHT = 160;
 const DRAFT_KEY_PREFIX = "wikibridge-chat-draft";
+const SEND_ON_ENTER_KEY = "wikibridge-send-on-enter";
 
 function draftKey(conversationId?: string) {
   return `${DRAFT_KEY_PREFIX}:${conversationId ?? "new"}`;
+}
+
+function readSendOnEnter(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    const stored = localStorage.getItem(SEND_ON_ENTER_KEY);
+    if (stored === null) return true;
+    return stored === "true";
+  } catch {
+    return true;
+  }
 }
 
 interface ChatInputProps {
@@ -21,6 +34,7 @@ interface ChatInputProps {
   conversationId?: string;
   size?: "default" | "large";
   centered?: boolean;
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export function ChatInput({
@@ -32,10 +46,20 @@ export function ChatInput({
   conversationId,
   size = "default",
   centered = false,
+  inputRef: externalRef,
 }: ChatInputProps) {
   const [content, setContent] = useState(initialValue);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [sendOnEnter, setSendOnEnter] = useState(true);
+  const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
+  const [showRecent, setShowRecent] = useState(false);
+  const internalRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = externalRef ?? internalRef;
   const skipDraftSave = useRef(false);
+
+  useEffect(() => {
+    setSendOnEnter(readSendOnEnter());
+    setRecentPrompts(getPromptHistory());
+  }, []);
 
   useEffect(() => {
     if (initialValue) {
@@ -77,11 +101,21 @@ export function ChatInput({
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
-  }, []);
+  }, [textareaRef]);
 
   useEffect(() => {
     resizeTextarea();
   }, [content, resizeTextarea]);
+
+  function toggleSendOnEnter() {
+    const next = !sendOnEnter;
+    setSendOnEnter(next);
+    try {
+      localStorage.setItem(SEND_ON_ENTER_KEY, String(next));
+    } catch {
+      /* ignore */
+    }
+  }
 
   async function handleSubmit(event?: React.FormEvent) {
     event?.preventDefault();
@@ -89,6 +123,8 @@ export function ChatInput({
     if (!trimmed || disabled || busy) return;
 
     setContent("");
+    addPromptHistory(trimmed);
+    setRecentPrompts(getPromptHistory());
     try {
       sessionStorage.removeItem(draftKey(conversationId));
     } catch {
@@ -101,7 +137,6 @@ export function ChatInput({
   const charCount = content.length;
   const nearLimit = charCount > MAX_CHARS * 0.9;
   const isGenerating = Boolean(busy);
-
   const isLarge = size === "large";
 
   return (
@@ -111,7 +146,7 @@ export function ChatInput({
         "shrink-0 no-print w-full",
         centered
           ? "py-0 px-0 bg-transparent border-0"
-          : "border-t border-stroke-subtle py-4 bg-surface-0/80 backdrop-blur-xl chat-input-shadow pb-safe px-4 md:px-6",
+          : "border-t border-stroke-subtle py-4 surface-glass chat-input-shadow pb-safe px-4 md:px-6",
         isGenerating && "opacity-95",
       )}
     >
@@ -124,6 +159,7 @@ export function ChatInput({
             />
           )}
           <textarea
+            id="chat-input"
             ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value.slice(0, MAX_CHARS))}
@@ -133,7 +169,7 @@ export function ChatInput({
                 void handleSubmit();
                 return;
               }
-              if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+              if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && sendOnEnter) {
                 e.preventDefault();
                 void handleSubmit();
                 return;
@@ -148,25 +184,65 @@ export function ChatInput({
                 }
               }
             }}
+            onFocus={() => {
+              if (!content.trim() && recentPrompts.length > 0) setShowRecent(true);
+            }}
+            onBlur={() => {
+              window.setTimeout(() => setShowRecent(false), 120);
+            }}
             placeholder={isGenerating ? "Generando respuesta…" : "Escribe tu pregunta sobre la documentación…"}
             rows={1}
-            disabled={isGenerating}
             aria-busy={isGenerating}
             className={clsx(
               "input-field w-full resize-none rounded-2xl bg-surface-1 border-stroke-default",
               "max-h-[160px] overflow-y-auto",
               isLarge ? "min-h-[56px] text-base px-4 py-3" : "min-h-[44px]",
-              isGenerating && "cursor-not-allowed text-text-muted",
+              isGenerating && "text-text-muted",
             )}
             aria-label="Escribe tu pregunta"
           />
-          <div className="flex justify-between mt-1.5 px-1 gap-2">
-            <span className="text-[10px] text-text-muted hidden sm:inline">
+          {showRecent && recentPrompts.length > 0 && !content.trim() && (
+            <div className="absolute left-0 right-0 bottom-full mb-1 z-20 surface-card-elevated border border-stroke-subtle rounded-lg p-1 max-h-40 overflow-y-auto shadow-elevated">
+              <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">Recientes</p>
+              {recentPrompts.slice(0, 6).map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="list-row w-full text-xs rounded-md text-left"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setContent(prompt);
+                    setShowRecent(false);
+                    textareaRef.current?.focus();
+                  }}
+                >
+                  <span className="truncate">{prompt}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-between mt-1.5 px-1 gap-2 flex-wrap">
+            <span className="meta-caption">
               <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[9px]">Shift</kbd>
               {" + "}
               <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[9px]">Enter</kbd>
-              {" nueva línea"}
+              {" nueva línea · "}
+              <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[9px]">Ctrl</kbd>
+              {"+"}
+              <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[9px]">Enter</kbd>
+              {" enviar"}
             </span>
+            <button
+              type="button"
+              onClick={toggleSendOnEnter}
+              className={clsx(
+                "text-[10px] meta-caption hover:text-text-secondary transition-colors",
+                sendOnEnter ? "text-text-muted" : "text-accent",
+              )}
+              title={sendOnEnter ? "Enter envía el mensaje" : "Enter añade nueva línea"}
+            >
+              {sendOnEnter ? "Enter envía" : "Enter nueva línea"}
+            </button>
             {nearLimit && (
               <span
                 className="text-[10px] tabular-nums text-status-warn ml-auto"
@@ -196,7 +272,7 @@ export function ChatInput({
             type="submit"
             disabled={isGenerating || !content.trim()}
             className={clsx(
-              "absolute inset-0 btn-primary !min-h-[44px] !min-w-[44px] !rounded-full !p-0",
+              "absolute inset-0 btn-send !min-h-[44px] !min-w-[44px] !rounded-full !p-0",
               "transition-all duration-200",
               isGenerating ? "opacity-0 scale-90 pointer-events-none" : "opacity-100 scale-100",
             )}

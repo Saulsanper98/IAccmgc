@@ -8,6 +8,10 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    # Acceso externo opcional (DBeaver). Si el puerto está ocupado, comenta esta sección
+    # y usa: docker compose exec postgres psql -U wikibridge -d wikibridge
+    ports:
+      - "${POSTGRES_HOST_PORT:-5434}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wikibridge}"]
       interval: 5s

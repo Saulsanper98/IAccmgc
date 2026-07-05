@@ -7,11 +7,13 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   className,
+  idPrefix,
 }: {
   options: { value: T; label: string }[];
   value: T;
   onChange: (value: T) => void;
   className?: string;
+  idPrefix?: string;
 }) {
   return (
     <div
@@ -26,7 +28,9 @@ export function SegmentedControl<T extends string>({
           key={opt.value}
           type="button"
           role="tab"
+          id={idPrefix ? `${idPrefix}-tab-${opt.value}` : undefined}
           aria-selected={value === opt.value}
+          aria-controls={idPrefix ? `${idPrefix}-panel-${opt.value}` : undefined}
           onClick={() => onChange(opt.value)}
           className={clsx(
             "px-3 py-1.5 text-xs font-medium rounded-md transition-colors min-h-[36px]",

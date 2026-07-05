@@ -1,15 +1,18 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { JobStatusBadge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
+import { IconChevronDown } from "@/components/ui/Icons";
+import { useToast } from "@/components/ui/ToastProvider";
 
 export interface IngestJob {
   id: string;
   type: string;
   status: string;
   started_at: string | null;
+  finished_at?: string | null;
   stats: Record<string, number>;
   error: string | null;
 }
@@ -28,9 +31,12 @@ function jobProgress(job: IngestJob): number | null {
 
 export function JobsTable({ jobs }: { jobs: IngestJob[] }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [sortKey, setSortKey] = useState<SortKey>("started_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [expandedErrors, setExpandedErrors] = useState<Set<string>>(new Set());
+  const prevStatusesRef = useRef<Map<string, string>>(new Map());
 
   const hasActiveJob = jobs.some((j) => j.status === "running" || j.status === "pending");
 
@@ -39,6 +45,21 @@ export function JobsTable({ jobs }: { jobs: IngestJob[] }) {
     const interval = setInterval(() => router.refresh(), 5000);
     return () => clearInterval(interval);
   }, [hasActiveJob, router]);
+
+  useEffect(() => {
+    const prev = prevStatusesRef.current;
+    for (const job of jobs) {
+      const was = prev.get(job.id);
+      if (was && (was === "running" || was === "pending")) {
+        if (job.status === "completed") {
+          toast(`Sync ${job.type} completado`, "success");
+        } else if (job.status === "failed") {
+          toast(`Sync ${job.type} falló`, "error");
+        }
+      }
+      prev.set(job.id, job.status);
+    }
+  }, [jobs, toast]);
 
   const sorted = useMemo(() => {
     let list = [...jobs];
@@ -65,6 +86,15 @@ export function JobsTable({ jobs }: { jobs: IngestJob[] }) {
       setSortKey(key);
       setSortDir("desc");
     }
+  }
+
+  function toggleError(id: string) {
+    setExpandedErrors((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   return (
@@ -119,8 +149,9 @@ export function JobsTable({ jobs }: { jobs: IngestJob[] }) {
             <tbody>
               {sorted.map((job) => {
                 const progress = jobProgress(job);
+                const errorExpanded = expandedErrors.has(job.id);
                 return (
-                  <tr key={job.id} className="border-b border-stroke-subtle last:border-0">
+                  <tr key={job.id} className="border-b border-stroke-subtle last:border-0 align-top">
                     <td className="p-3 capitalize">{job.type}</td>
                     <td className="p-3">
                       <JobStatusBadge status={job.status} />
@@ -133,7 +164,7 @@ export function JobsTable({ jobs }: { jobs: IngestJob[] }) {
                         <div className="space-y-1">
                           <div className="h-1.5 rounded-full bg-surface-2 overflow-hidden">
                             <div
-                              className="h-full bg-link transition-all"
+                              className="h-full bg-[var(--color-link)] transition-all"
                               style={{ width: `${progress}%` }}
                             />
                           </div>
@@ -144,11 +175,30 @@ export function JobsTable({ jobs }: { jobs: IngestJob[] }) {
                       )}
                     </td>
                     <td className="p-3 text-text-secondary">
-                      {job.error
-                        ? job.error
-                        : job.status === "running"
-                          ? `${job.stats?.pages_upserted ?? 0}/${job.stats?.pages_seen ?? "?"} págs`
-                          : `${job.stats?.pages_upserted ?? 0} págs · ${job.stats?.chunks_created ?? 0} chunks`}
+                      {job.error ? (
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            className="flex items-center gap-1 text-status-error text-left hover:underline"
+                            onClick={() => toggleError(job.id)}
+                            aria-expanded={errorExpanded}
+                          >
+                            <IconChevronDown
+                              className={`w-3.5 h-3.5 shrink-0 transition-transform ${errorExpanded ? "rotate-180" : ""}`}
+                            />
+                            <span className="line-clamp-1">{job.error}</span>
+                          </button>
+                          {errorExpanded && (
+                            <pre className="text-xs whitespace-pre-wrap break-words p-2 rounded-md bg-status-error/5 border border-status-error/20 max-h-40 overflow-y-auto">
+                              {job.error}
+                            </pre>
+                          )}
+                        </div>
+                      ) : job.status === "running" ? (
+                        `${job.stats?.pages_upserted ?? 0}/${job.stats?.pages_seen ?? "?"} págs`
+                      ) : (
+                        `${job.stats?.pages_upserted ?? 0} págs · ${job.stats?.chunks_created ?? 0} chunks`
+                      )}
                     </td>
                   </tr>
                 );

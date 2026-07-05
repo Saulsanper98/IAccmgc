@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ChatMessage } from "@/lib/chat-types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ChatMessage, Citation } from "@/lib/chat-types";
 import { ChatMessageBubble } from "./ChatMessageBubble";
+import { ChatSourcesPanel } from "./ChatSourcesPanel";
 import { SuggestedPrompts } from "./SuggestedPrompts";
 import { ScrollToBottom } from "./ScrollToBottom";
 import { ChatSkeleton } from "@/components/ui/Skeleton";
-import { DATE_GROUP_LABELS, getDateGroup, type RegenerateMode } from "@/lib/format";
+import type { ContextualPromptOptions } from "@/lib/suggested-prompts";
+import { DATE_GROUP_LABELS, formatRelativeTime, getDateGroup, type RegenerateMode } from "@/lib/format";
 
 interface ChatMessagesProps {
   messages: ChatMessage[];
@@ -23,20 +25,23 @@ interface ChatMessagesProps {
   onEditUser?: (messageId: string, content: string) => void;
   onRetry?: (content: string) => void;
   loadingMessages?: boolean;
-  suggestedPrompts?: string[];
+  promptOptions?: ContextualPromptOptions;
   wikiUrl?: string | null;
-  emptyStateInput?: ReactNode;
+  lastSyncAt?: string | null;
+  isAdmin?: boolean;
+  conversationId?: string;
 }
 
 const VIRTUAL_THRESHOLD = 100;
-const ESTIMATED_ROW_HEIGHT = 120;
-const OVERSCAN = 8;
+const DEFAULT_ROW_HEIGHT = 180;
+const SEPARATOR_HEIGHT = 44;
+const OVERSCAN = 6;
 
 function DateSeparator({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 py-2" role="separator" aria-label={label}>
       <div className="flex-1 h-px bg-stroke-subtle" />
-      <span className="text-[11px] font-medium text-text-muted shrink-0">{label}</span>
+      <span className="meta-caption font-medium shrink-0">{label}</span>
       <div className="flex-1 h-px bg-stroke-subtle" />
     </div>
   );
@@ -44,7 +49,13 @@ function DateSeparator({ label }: { label: string }) {
 
 type RenderItem =
   | { type: "separator"; label: string; key: string }
-  | { type: "message"; message: ChatMessage; index: number };
+  | { type: "message"; message: ChatMessage; index: number; key: string };
+
+function itemHeight(item: RenderItem, heights: Map<string, number>): number {
+  const measured = heights.get(item.key);
+  if (measured != null) return measured;
+  return item.type === "separator" ? SEPARATOR_HEIGHT : DEFAULT_ROW_HEIGHT;
+}
 
 export function ChatMessages({
   messages,
@@ -60,12 +71,16 @@ export function ChatMessages({
   onEditUser,
   onRetry,
   loadingMessages,
-  suggestedPrompts,
+  promptOptions,
   wikiUrl,
-  emptyStateInput,
+  lastSyncAt,
+  isAdmin = false,
+  conversationId,
 }: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const rowHeightsRef = useRef<Map<string, number>>(new Map());
+  const [, bumpHeights] = useState(0);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [highlightedCitation, setHighlightedCitation] = useState<number | null>(null);
   const [completionAnnounce, setCompletionAnnounce] = useState(false);
@@ -79,6 +94,36 @@ export function ChatMessages({
   const isPending = isSearching && !streamingContent;
   const isStreaming = !!streamingContent;
   const useVirtual = messages.length >= VIRTUAL_THRESHOLD && !showStreamingBlock;
+
+  const panelCitations = useMemo(() => {
+    const seen = new Set<string>();
+    const result: Citation[] = [];
+    for (const message of messages) {
+      if (message.role !== "assistant") continue;
+      for (const citation of message.citations ?? []) {
+        if (seen.has(citation.chunk_id)) continue;
+        seen.add(citation.chunk_id);
+        result.push(citation);
+      }
+    }
+    if (streamingCitations) {
+      for (const citation of streamingCitations) {
+        if (seen.has(citation.chunk_id)) continue;
+        seen.add(citation.chunk_id);
+        result.push(citation);
+      }
+    }
+    return result;
+  }, [messages, streamingCitations]);
+
+  const measureRow = useCallback((key: string, node: HTMLDivElement | null) => {
+    if (!node) return;
+    const height = node.getBoundingClientRect().height;
+    if (height > 0 && rowHeightsRef.current.get(key) !== height) {
+      rowHeightsRef.current.set(key, height);
+      bumpHeights((v) => v + 1);
+    }
+  }, []);
 
   const scrollToBottom = useCallback((smooth = true) => {
     bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
@@ -140,22 +185,51 @@ export function ChatMessages({
           lastGroup = group;
         }
       }
-      items.push({ type: "message", message, index });
+      items.push({ type: "message", message, index, key: message.id });
     });
 
     return items;
   }, [messages]);
 
   const virtualWindow = useMemo(() => {
-    if (!useVirtual) return { start: 0, end: messagesWithSeparators.length };
-    const startIdx = Math.max(0, Math.floor(scrollTop / ESTIMATED_ROW_HEIGHT) - OVERSCAN);
-    const visible = Math.ceil(viewportHeight / ESTIMATED_ROW_HEIGHT) + OVERSCAN * 2;
-    const endIdx = Math.min(messagesWithSeparators.length, startIdx + visible);
-    return { start: startIdx, end: endIdx };
-  }, [useVirtual, scrollTop, viewportHeight, messagesWithSeparators.length]);
+    if (!useVirtual) return { start: 0, end: messagesWithSeparators.length, topSpacer: 0, bottomSpacer: 0 };
 
-  const topSpacer = virtualWindow.start * ESTIMATED_ROW_HEIGHT;
-  const bottomSpacer = (messagesWithSeparators.length - virtualWindow.end) * ESTIMATED_ROW_HEIGHT;
+    const heights = rowHeightsRef.current;
+    let offset = 0;
+    let startIdx = 0;
+
+    for (let i = 0; i < messagesWithSeparators.length; i++) {
+      const h = itemHeight(messagesWithSeparators[i], heights);
+      if (offset + h > scrollTop - OVERSCAN * DEFAULT_ROW_HEIGHT) {
+        startIdx = Math.max(0, i - OVERSCAN);
+        break;
+      }
+      offset += h;
+      if (i === messagesWithSeparators.length - 1) startIdx = messagesWithSeparators.length;
+    }
+
+    let topSpacer = 0;
+    for (let i = 0; i < startIdx; i++) {
+      topSpacer += itemHeight(messagesWithSeparators[i], heights);
+    }
+
+    let visibleHeight = 0;
+    let endIdx = startIdx;
+    const target = viewportHeight + OVERSCAN * DEFAULT_ROW_HEIGHT;
+    for (let i = startIdx; i < messagesWithSeparators.length; i++) {
+      visibleHeight += itemHeight(messagesWithSeparators[i], heights);
+      endIdx = i + 1;
+      if (visibleHeight >= target) break;
+    }
+
+    let bottomSpacer = 0;
+    for (let i = endIdx; i < messagesWithSeparators.length; i++) {
+      bottomSpacer += itemHeight(messagesWithSeparators[i], heights);
+    }
+
+    return { start: startIdx, end: endIdx, topSpacer, bottomSpacer };
+  }, [useVirtual, scrollTop, viewportHeight, messagesWithSeparators]);
+
   const visibleItems = useVirtual
     ? messagesWithSeparators.slice(virtualWindow.start, virtualWindow.end)
     : messagesWithSeparators;
@@ -183,11 +257,29 @@ export function ChatMessages({
         showDisclaimer={isLastAssistant}
         wikiUrl={wikiUrl}
         isLastInThread={isLastInThread}
+        conversationId={conversationId}
         onRegenerate={message.role === "assistant" && isLastAssistant ? onRegenerate : undefined}
         onEditUser={message.role === "user" ? (content) => onEditUser?.(message.id, content) : undefined}
         onRetryUser={isLastUser && onRetry ? () => onRetry(message.content) : undefined}
         showRetryUser={isLastUser && !isSearching}
       />
+    );
+  }
+
+  function renderItem(item: RenderItem) {
+    const content =
+      item.type === "separator" ? (
+        <DateSeparator label={item.label} />
+      ) : (
+        renderMessageItem(item)
+      );
+
+    if (!useVirtual) return content;
+
+    return (
+      <div key={item.key} ref={(node) => measureRow(item.key, node)}>
+        {content}
+      </div>
     );
   }
 
@@ -202,21 +294,28 @@ export function ChatMessages({
   }
 
   return (
+    <div className="flex flex-1 min-h-0 min-w-0">
     <div
       ref={containerRef}
       className="flex-1 overflow-y-auto overflow-x-hidden pt-8 pb-4 relative min-h-0 w-full"
     >
-      <div className="chat-content-column space-y-10 px-4 md:px-6">
+      <div
+        className={`chat-content-column space-y-10 px-4 md:px-6${showScrollBtn ? " pb-16" : ""}`}
+      >
         {showWelcome && (
-          <div className="flex flex-col items-center justify-center min-h-[50vh] text-center">
+          <div className="flex flex-col items-center justify-center min-h-[40vh] text-center pb-8">
             <h2 className="text-2xl font-semibold tracking-tight">¿Qué quieres saber?</h2>
             <p className="text-text-secondary text-sm mt-2 leading-relaxed">
               Respuestas con citas desde{" "}
               {pageCount != null ? (
                 <>
-                  <Link href="/admin" className="text-link hover:underline">
-                    {pageCount} páginas
-                  </Link>{" "}
+                  {isAdmin ? (
+                    <Link href="/admin" className="text-link hover:underline">
+                      {pageCount} páginas
+                    </Link>
+                  ) : (
+                    <span>{pageCount} páginas</span>
+                  )}{" "}
                   indexadas
                 </>
               ) : (
@@ -224,28 +323,46 @@ export function ChatMessages({
               )}
               {wikiUrl ? " de Wiki.js" : ""}.
             </p>
-            {emptyStateInput && <div className="w-full max-w-2xl mt-6">{emptyStateInput}</div>}
+            {lastSyncAt && isAdmin && (
+              <p className="meta-caption mt-1">
+                Última sincronización {formatRelativeTime(lastSyncAt)} ·{" "}
+                <Link href="/admin" className="text-link hover:underline">
+                  Admin
+                </Link>
+              </p>
+            )}
+            {lastSyncAt && !isAdmin && (
+              <p className="meta-caption mt-1">
+                Última sincronización {formatRelativeTime(lastSyncAt)}
+              </p>
+            )}
+            <p className="meta-caption mt-2 max-w-md">
+              También puedes abrir el chat con una pregunta en la URL, por ejemplo{" "}
+              <Link href="/chat?q=¿Cómo%20accedo%20al%20VPN?" className="text-link hover:underline">
+                /chat?q=…
+              </Link>
+              .
+            </p>
             {onSuggestedPrompt && (
               <SuggestedPrompts
                 onSelect={onSuggestedPrompt}
                 disabled={isSearching}
-                prompts={suggestedPrompts}
+                promptOptions={promptOptions}
                 categorized
               />
             )}
           </div>
         )}
 
-        {useVirtual && topSpacer > 0 && <div aria-hidden style={{ height: topSpacer }} />}
+        {useVirtual && virtualWindow.topSpacer > 0 && (
+          <div aria-hidden style={{ height: virtualWindow.topSpacer }} />
+        )}
 
-        {visibleItems.map((item) => {
-          if (item.type === "separator") {
-            return <DateSeparator key={item.key} label={item.label} />;
-          }
-          return renderMessageItem(item);
-        })}
+        {visibleItems.map((item) => renderItem(item))}
 
-        {useVirtual && bottomSpacer > 0 && <div aria-hidden style={{ height: bottomSpacer }} />}
+        {useVirtual && virtualWindow.bottomSpacer > 0 && (
+          <div aria-hidden style={{ height: virtualWindow.bottomSpacer }} />
+        )}
 
         {showStreamingBlock && (
           <ChatMessageBubble
@@ -265,6 +382,7 @@ export function ChatMessages({
             onCitationClick={handleCitationClick}
             wikiUrl={wikiUrl}
             isLastInThread
+            conversationId={conversationId}
           />
         )}
 
@@ -279,6 +397,12 @@ export function ChatMessages({
           {completionAnnounce ? "Respuesta completada." : ""}
         </div>
       </div>
+    </div>
+    <ChatSourcesPanel
+      citations={panelCitations}
+      highlightedIndex={highlightedCitation}
+      onCitationClick={handleCitationClick}
+    />
     </div>
   );
 }

@@ -1,18 +1,36 @@
 "use client";
 
 import { useState } from "react";
-import { IconCheck, IconCopy, IconEdit, IconRefresh } from "@/components/ui/Icons";
+import { IconCheck, IconCopy, IconEdit, IconLink, IconRefresh } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/ToastProvider";
 
 interface MessageActionsProps {
   content: string;
   onRegenerate?: () => void;
   onRetry?: () => void;
+  messageId?: string;
+  conversationId?: string;
 }
 
-export function MessageActions({ content, onRegenerate, onRetry }: MessageActionsProps) {
+function buildMessageLink(conversationId?: string, messageId?: string): string | null {
+  if (!messageId || typeof window === "undefined") return null;
+  const base = conversationId
+    ? `${window.location.origin}/chat/${conversationId}`
+    : `${window.location.origin}${window.location.pathname}`;
+  return `${base}#msg-${messageId}`;
+}
+
+export function MessageActions({
+  content,
+  onRegenerate,
+  onRetry,
+  messageId,
+  conversationId,
+}: MessageActionsProps) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const messageLink = buildMessageLink(conversationId, messageId);
 
   async function copy(e: React.MouseEvent) {
     e.preventDefault();
@@ -27,6 +45,16 @@ export function MessageActions({ content, onRegenerate, onRetry }: MessageAction
     setTimeout(() => setCopied(false), 2000);
   }
 
+  async function copyLink(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!messageLink) return;
+    await navigator.clipboard.writeText(messageLink);
+    setLinkCopied(true);
+    toast("Enlace copiado", "success");
+    setTimeout(() => setLinkCopied(false), 2000);
+  }
+
   return (
     <div className="flex items-center gap-1 mt-2 flex-wrap opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity">
       <button
@@ -39,6 +67,18 @@ export function MessageActions({ content, onRegenerate, onRetry }: MessageAction
         {copied ? <IconCheck className="w-3.5 h-3.5 text-status-ok" /> : <IconCopy className="w-3.5 h-3.5" />}
         Copiar
       </button>
+      {messageLink && (
+        <button
+          type="button"
+          onClick={copyLink}
+          className="btn-ghost px-2 py-1 text-xs inline-flex items-center gap-1"
+          aria-label="Copiar enlace al mensaje"
+          title="Copiar enlace al mensaje"
+        >
+          {linkCopied ? <IconCheck className="w-3.5 h-3.5 text-status-ok" /> : <IconLink className="w-3.5 h-3.5" />}
+          Enlace
+        </button>
+      )}
       {onRegenerate && (
         <button
           type="button"
@@ -74,6 +114,8 @@ export function UserMessageActions({
   showRetry,
   isEditing,
   onStartEdit,
+  messageId,
+  conversationId,
 }: {
   content: string;
   onEdit?: () => void;
@@ -81,9 +123,13 @@ export function UserMessageActions({
   showRetry?: boolean;
   isEditing?: boolean;
   onStartEdit?: () => void;
+  messageId?: string;
+  conversationId?: string;
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const messageLink = buildMessageLink(conversationId, messageId);
 
   async function copy(e: React.MouseEvent) {
     e.preventDefault();
@@ -92,6 +138,16 @@ export function UserMessageActions({
     setCopied(true);
     toast("Pregunta copiada", "success");
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function copyLink(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!messageLink) return;
+    await navigator.clipboard.writeText(messageLink);
+    setLinkCopied(true);
+    toast("Enlace copiado", "success");
+    setTimeout(() => setLinkCopied(false), 2000);
   }
 
   if (isEditing) return null;
@@ -123,6 +179,21 @@ export function UserMessageActions({
           <IconCopy className="w-3.5 h-3.5" />
         )}
       </button>
+      {messageLink && (
+        <button
+          type="button"
+          onClick={copyLink}
+          className="btn-icon !min-h-[32px] !min-w-[32px] !rounded-lg"
+          aria-label="Copiar enlace al mensaje"
+          title="Copiar enlace"
+        >
+          {linkCopied ? (
+            <IconCheck className="w-3.5 h-3.5 text-status-ok" />
+          ) : (
+            <IconLink className="w-3.5 h-3.5" />
+          )}
+        </button>
+      )}
       {(onEdit || onStartEdit) && (
         <button
           type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -9,6 +9,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "danger" | "default";
+  requireConfirmText?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -20,14 +21,22 @@ export function ConfirmDialog({
   confirmLabel = "Confirmar",
   cancelLabel = "Cancelar",
   variant = "default",
+  requireConfirmText,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const [confirmText, setConfirmText] = useState("");
+
+  const needsTypedConfirm = variant === "danger" && !!requireConfirmText;
+  const confirmEnabled = !needsTypedConfirm || confirmText === requireConfirmText;
 
   useEffect(() => {
-    if (open) confirmRef.current?.focus();
+    if (open) {
+      setConfirmText("");
+      confirmRef.current?.focus();
+    }
   }, [open]);
 
   useEffect(() => {
@@ -78,6 +87,21 @@ export function ConfirmDialog({
         <p id="confirm-desc" className="text-sm text-text-secondary mt-2 leading-relaxed">
           {message}
         </p>
+        {needsTypedConfirm && (
+          <label className="block mt-4 space-y-1.5">
+            <span className="text-xs text-text-secondary">
+              Escribe <strong className="text-text-primary">{requireConfirmText}</strong> para confirmar
+            </span>
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              className="input-field text-sm"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+        )}
         <div className="flex justify-end gap-2 mt-6">
           <button type="button" className="btn-ghost btn-sm" onClick={onCancel}>
             {cancelLabel}
@@ -87,6 +111,7 @@ export function ConfirmDialog({
             type="button"
             className={variant === "danger" ? "btn-danger btn-sm" : "btn-primary btn-sm"}
             onClick={onConfirm}
+            disabled={!confirmEnabled}
           >
             {confirmLabel}
           </button>

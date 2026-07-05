@@ -1,3 +1,4 @@
+import Link from "next/link";
 import clsx from "clsx";
 
 export function Breadcrumb({
@@ -14,9 +15,9 @@ export function Breadcrumb({
           <li key={`${item.label}-${i}`} className="flex items-center gap-1.5">
             {i > 0 && <span aria-hidden>/</span>}
             {item.href ? (
-              <a href={item.href} className="text-link hover:underline">
+              <Link href={item.href} className="text-link hover:underline">
                 {item.label}
-              </a>
+              </Link>
             ) : (
               <span className="text-text-secondary">{item.label}</span>
             )}

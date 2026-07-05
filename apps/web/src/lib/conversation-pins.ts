@@ -46,3 +46,15 @@ export function toggleArchive(id: string): boolean {
   writeSet(ARCHIVED_KEY, archived);
   return next;
 }
+
+export function removeConversationPins(id: string): void {
+  const pins = getPinnedIds();
+  const archived = getArchivedIds();
+  let changed = false;
+  if (pins.delete(id)) changed = true;
+  if (archived.delete(id)) changed = true;
+  if (changed) {
+    writeSet(PINS_KEY, pins);
+    writeSet(ARCHIVED_KEY, archived);
+  }
+}

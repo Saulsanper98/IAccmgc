@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import {
   IconCheck,
   IconCopy,
   IconDownload,
+  IconInfo,
+  IconLink,
   IconRefresh,
 } from "@/components/ui/Icons";
 import { useToast } from "@/components/ui/ToastProvider";
@@ -21,20 +24,25 @@ const REGENERATE_OPTIONS: { mode: RegenerateMode; label: string; description: st
 export function AssistantMessageFooter({
   messageId,
   content,
+  conversationId,
   onRegenerate,
   latencyMs,
   model,
 }: {
   messageId: string;
   content: string;
+  conversationId?: string;
   onRegenerate?: (mode?: RegenerateMode) => void;
   latencyMs?: number | null;
   model?: string | null;
 }) {
   const { toast } = useToast();
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpensDown, setMenuOpensDown] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -47,6 +55,17 @@ export function AssistantMessageFooter({
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [menuOpen]);
 
+  function toggleMenu() {
+    setMenuOpen((prev) => {
+      const next = !prev;
+      if (next && menuButtonRef.current) {
+        const rect = menuButtonRef.current.getBoundingClientRect();
+        setMenuOpensDown(rect.top < 160);
+      }
+      return next;
+    });
+  }
+
   async function copy() {
     if (!content.trim()) {
       toast("No hay contenido para copiar", "error");
@@ -56,6 +75,17 @@ export function AssistantMessageFooter({
     setCopied(true);
     toast("Respuesta copiada", "success");
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function copyLink() {
+    const base = conversationId
+      ? `${window.location.origin}/chat/${conversationId}`
+      : `${window.location.origin}${window.location.pathname}`;
+    const url = `${base}#msg-${messageId}`;
+    await navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    toast("Enlace copiado", "success");
+    setTimeout(() => setLinkCopied(false), 2000);
   }
 
   function exportMd() {
@@ -74,7 +104,7 @@ export function AssistantMessageFooter({
 
   return (
     <div className="mt-3 pt-2 border-t border-stroke-subtle/60">
-      <div className="flex items-center gap-0.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100 transition-opacity duration-150">
+      <div className="flex items-center gap-0.5 transition-opacity duration-150">
         <MessageFeedback messageId={messageId} compact />
 
         <button
@@ -93,6 +123,20 @@ export function AssistantMessageFooter({
 
         <button
           type="button"
+          onClick={() => void copyLink()}
+          className="btn-icon !min-h-[32px] !min-w-[32px] !rounded-lg"
+          aria-label={linkCopied ? "Enlace copiado" : "Copiar enlace al mensaje"}
+          title="Copiar enlace"
+        >
+          {linkCopied ? (
+            <IconCheck className="w-3.5 h-3.5 text-status-ok" />
+          ) : (
+            <IconLink className="w-3.5 h-3.5" />
+          )}
+        </button>
+
+        <button
+          type="button"
           onClick={exportMd}
           className="btn-icon !min-h-[32px] !min-w-[32px] !rounded-lg"
           aria-label="Exportar mensaje"
@@ -104,8 +148,9 @@ export function AssistantMessageFooter({
         {onRegenerate && (
           <div className="relative" ref={menuRef}>
             <button
+              ref={menuButtonRef}
               type="button"
-              onClick={() => setMenuOpen((v) => !v)}
+              onClick={toggleMenu}
               className="btn-icon !min-h-[32px] !min-w-[32px] !rounded-lg"
               aria-label="Regenerar respuesta"
               aria-expanded={menuOpen}
@@ -117,7 +162,10 @@ export function AssistantMessageFooter({
             {menuOpen && (
               <div
                 role="menu"
-                className="absolute left-0 bottom-full mb-1 z-30 min-w-[200px] py-1 rounded-xl border border-stroke-default bg-surface-1 shadow-glass"
+                className={clsx(
+                  "absolute left-0 z-30 min-w-[200px] py-1 rounded-xl border border-stroke-default bg-surface-1 shadow-glass",
+                  menuOpensDown ? "top-full mt-1" : "bottom-full mb-1",
+                )}
               >
                 {REGENERATE_OPTIONS.map((opt) => (
                   <button
@@ -141,10 +189,11 @@ export function AssistantMessageFooter({
       </div>
 
       {hasDetails && (
-        <details className="mt-2 group/details">
-          <summary className="meta-caption cursor-pointer hover:text-text-secondary list-none flex items-center gap-1">
-            <span className="group-open/details:rotate-90 transition-transform inline-block">▸</span>
-            Detalles de la respuesta
+        <details className="mt-2 group/details" aria-label="Detalles de la respuesta del asistente">
+          <summary className="meta-caption cursor-pointer hover:text-text-secondary list-none flex items-center gap-1.5">
+            <IconInfo className="w-3.5 h-3.5 shrink-0" />
+            <span>Detalles de la respuesta</span>
+            <span className="group-open/details:rotate-90 transition-transform inline-block ml-auto">▸</span>
           </summary>
           <dl className="mt-1.5 pl-3 meta-caption space-y-0.5 border-l border-stroke-subtle">
             {latencyMs != null && (

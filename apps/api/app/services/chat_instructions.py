@@ -11,11 +11,27 @@ INSTRUCTIONS_PROMPT_RULES = """
 9. Las instrucciones orientan dónde buscar y cómo responder; no sustituyen la evidencia de los fragmentos. Si no hay fragmentos relevantes, dilo explícitamente."""
 
 
+VALIDATED_QA_SECTION_HEADER = (
+    "### Respuestas validadas por el equipo (máxima prioridad)\n\n"
+    "Si la pregunta del usuario coincide con alguna de las siguientes, básate en la respuesta validada. "
+    "Tiene prioridad sobre la documentación de la wiki si hay conflicto."
+)
+
+
+def format_validated_qa_prompt_section(entries: list[dict[str, str]]) -> str:
+    lines = [VALIDATED_QA_SECTION_HEADER]
+    for entry in entries:
+        lines.append(f"\n[Q]: {entry['question']}")
+        lines.append(f"\n[A]: {entry['answer']} (validada el {entry['validated_date']})")
+    return "".join(lines)
+
+
 def build_rag_system_prompt(
     base_prompt: str,
     *,
     team_instructions: str | None = None,
     user_instructions: str | None = None,
+    validated_qa_entries: list[dict[str, str]] | None = None,
 ) -> str:
     parts = [base_prompt.rstrip(), INSTRUCTIONS_PROMPT_RULES]
 
@@ -26,6 +42,9 @@ def build_rag_system_prompt(
     user_text = (user_instructions or "").strip()
     if user_text:
         parts.append(f"\n\nInstrucciones personales del usuario:\n{user_text}")
+
+    if validated_qa_entries:
+        parts.append(f"\n\n{format_validated_qa_prompt_section(validated_qa_entries)}")
 
     return "".join(parts)
 

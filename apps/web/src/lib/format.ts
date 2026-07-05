@@ -21,6 +21,13 @@ export function formatRelativeTime(iso: string): string {
   return date.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
+export function lastIngestSyncAt(
+  status: { recent_jobs?: { status: string; finished_at?: string | null }[] } | null | undefined,
+): string | null {
+  const job = status?.recent_jobs?.find((j) => j.status === "completed" && j.finished_at);
+  return job?.finished_at ?? null;
+}
+
 export type DateGroup = "today" | "yesterday" | "week" | "older";
 
 export function getDateGroup(iso: string): DateGroup {

@@ -40,6 +40,10 @@ function CitationChip({
     ? `${citation.heading_path}\n\n${excerpt}`
     : excerpt;
 
+  function togglePopover() {
+    setPopoverOpen((v) => !v);
+  }
+
   return (
     <div className="relative">
       <a
@@ -48,9 +52,15 @@ function CitationChip({
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => {
+          const isTouch = window.matchMedia("(hover: none)").matches;
           if (onCitationClick) {
             e.preventDefault();
             onCitationClick(citation.index);
+            return;
+          }
+          if (isTouch) {
+            e.preventDefault();
+            togglePopover();
           }
         }}
         onMouseEnter={() => setPopoverOpen(true)}
@@ -72,7 +82,7 @@ function CitationChip({
         <span className="truncate font-medium text-text-primary">{citation.page_title}</span>
         {isExplicit === false && (
           <span className="text-[10px] text-text-muted shrink-0" title="Contexto RAG">
-            ctx
+            Contexto RAG
           </span>
         )}
         <IconExternalLink className="w-3 h-3 text-text-muted shrink-0" />
@@ -82,7 +92,7 @@ function CitationChip({
         <div
           id={`citation-popover-${citation.index}`}
           role="tooltip"
-          className="absolute left-0 bottom-full mb-2 z-30 w-72 max-w-[calc(100vw-2rem)] p-3 rounded-xl border border-stroke-default bg-surface-1 shadow-glass text-xs pointer-events-none"
+          className="absolute left-0 bottom-full mb-2 z-30 w-72 max-w-[calc(100vw-2rem)] p-3 rounded-xl border border-stroke-default bg-surface-1 shadow-elevated text-xs md:pointer-events-none"
         >
           {citation.heading_path && (
             <p className="font-medium text-text-primary mb-1 truncate">{citation.heading_path}</p>

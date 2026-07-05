@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useToast } from "@/components/ui/ToastProvider";
+import { formatRelativeTime } from "@/lib/format";
 
-export function IngestActions() {
+export function IngestActions({ lastSyncAt }: { lastSyncAt?: string | null }) {
   const router = useRouter();
   const { toast } = useToast();
   const [loading, setLoading] = useState<string | null>(null);
@@ -35,6 +36,12 @@ export function IngestActions() {
   return (
     <>
       <div className="space-y-2 mt-2">
+        {lastSyncAt && (
+          <p className="text-xs text-text-muted">
+            Último sync: {formatRelativeTime(lastSyncAt)} (
+            {new Date(lastSyncAt).toLocaleString("es-ES")})
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
