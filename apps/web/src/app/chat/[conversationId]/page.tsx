@@ -48,6 +48,7 @@ export default async function ChatConversationPage({ params }: ChatConversationP
       wikiUrl={wikiUrl}
       lastSyncAt={lastSyncAt}
       userRole={session.user.role}
+      userName={session.user.name}
       isAdmin={session.user.role === "admin"}
     />
   );

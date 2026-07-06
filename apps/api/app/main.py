@@ -13,13 +13,34 @@ from app.api.routes.health import router as health_router
 from app.api.routes.runbooks import router as runbooks_router
 from app.config import get_settings
 from app.logging_config import setup_logging
+from app.services.ollama import OllamaClient, close_http_client
+from app.services.query_cache import close_redis_client
+
+
+async def _warm_ollama_models() -> None:
+    settings = get_settings()
+    client = OllamaClient(settings)
+    try:
+        await client.embed_text("precalentamiento")
+        async for _token in client.chat_stream(
+            [{"role": "user", "content": "ok"}],
+            "Responde solo: listo",
+        ):
+            break
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("Ollama warm-up failed", exc_info=True)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
     setup_logging(settings.debug)
+    await _warm_ollama_models()
     yield
+    await close_http_client()
+    await close_redis_client()
 
 
 def create_app() -> FastAPI:

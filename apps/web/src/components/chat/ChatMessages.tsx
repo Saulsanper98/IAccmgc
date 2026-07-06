@@ -1,15 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatMessage, Citation } from "@/lib/chat-types";
 import { ChatMessageBubble } from "./ChatMessageBubble";
 import { ChatSourcesPanel } from "./ChatSourcesPanel";
-import { SuggestedPrompts } from "./SuggestedPrompts";
 import { ScrollToBottom } from "./ScrollToBottom";
 import { ChatSkeleton } from "@/components/ui/Skeleton";
-import type { ContextualPromptOptions } from "@/lib/suggested-prompts";
-import { DATE_GROUP_LABELS, formatRelativeTime, getDateGroup, type RegenerateMode } from "@/lib/format";
+import { DATE_GROUP_LABELS, getDateGroup, type RegenerateMode } from "@/lib/format";
 
 interface ChatMessagesProps {
   messages: ChatMessage[];
@@ -19,16 +16,11 @@ interface ChatMessagesProps {
   statusMessage?: string | null;
   statusPhase?: string | null;
   chunksFound?: number | null;
-  pageCount?: number | null;
-  onSuggestedPrompt?: (prompt: string) => void;
   onRegenerate?: (mode?: RegenerateMode) => void;
   onEditUser?: (messageId: string, content: string) => void;
   onRetry?: (content: string) => void;
   loadingMessages?: boolean;
-  promptOptions?: ContextualPromptOptions;
   wikiUrl?: string | null;
-  lastSyncAt?: string | null;
-  isAdmin?: boolean;
   conversationId?: string;
 }
 
@@ -65,16 +57,11 @@ export function ChatMessages({
   statusMessage,
   statusPhase,
   chunksFound,
-  pageCount,
-  onSuggestedPrompt,
   onRegenerate,
   onEditUser,
   onRetry,
   loadingMessages,
-  promptOptions,
   wikiUrl,
-  lastSyncAt,
-  isAdmin = false,
   conversationId,
 }: ChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,7 +76,6 @@ export function ChatMessages({
   const userAtBottomRef = useRef(true);
   const wasStreamingRef = useRef(false);
 
-  const showWelcome = messages.length === 0 && !isSearching && !streamingContent && !loadingMessages;
   const showStreamingBlock = isSearching || !!streamingContent;
   const isPending = isSearching && !streamingContent;
   const isStreaming = !!streamingContent;
@@ -302,58 +288,6 @@ export function ChatMessages({
       <div
         className={`chat-content-column space-y-10 px-4 md:px-6${showScrollBtn ? " pb-16" : ""}`}
       >
-        {showWelcome && (
-          <div className="flex flex-col items-center justify-center min-h-[40vh] text-center pb-8">
-            <h2 className="text-2xl font-semibold tracking-tight">¿Qué quieres saber?</h2>
-            <p className="text-text-secondary text-sm mt-2 leading-relaxed">
-              Respuestas con citas desde{" "}
-              {pageCount != null ? (
-                <>
-                  {isAdmin ? (
-                    <Link href="/admin" className="text-link hover:underline">
-                      {pageCount} páginas
-                    </Link>
-                  ) : (
-                    <span>{pageCount} páginas</span>
-                  )}{" "}
-                  indexadas
-                </>
-              ) : (
-                "tu wiki"
-              )}
-              {wikiUrl ? " de Wiki.js" : ""}.
-            </p>
-            {lastSyncAt && isAdmin && (
-              <p className="meta-caption mt-1">
-                Última sincronización {formatRelativeTime(lastSyncAt)} ·{" "}
-                <Link href="/admin" className="text-link hover:underline">
-                  Admin
-                </Link>
-              </p>
-            )}
-            {lastSyncAt && !isAdmin && (
-              <p className="meta-caption mt-1">
-                Última sincronización {formatRelativeTime(lastSyncAt)}
-              </p>
-            )}
-            <p className="meta-caption mt-2 max-w-md">
-              También puedes abrir el chat con una pregunta en la URL, por ejemplo{" "}
-              <Link href="/chat?q=¿Cómo%20accedo%20al%20VPN?" className="text-link hover:underline">
-                /chat?q=…
-              </Link>
-              .
-            </p>
-            {onSuggestedPrompt && (
-              <SuggestedPrompts
-                onSelect={onSuggestedPrompt}
-                disabled={isSearching}
-                promptOptions={promptOptions}
-                categorized
-              />
-            )}
-          </div>
-        )}
-
         {useVirtual && virtualWindow.topSpacer > 0 && (
           <div aria-hidden style={{ height: virtualWindow.topSpacer }} />
         )}

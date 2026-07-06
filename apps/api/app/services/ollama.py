@@ -12,6 +12,30 @@ from app.config import Settings
 
 logger = logging.getLogger(__name__)
 
+_shared_client: httpx.AsyncClient | None = None
+_client_lock = asyncio.Lock()
+
+
+async def get_http_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is not None and not _shared_client.is_closed:
+        return _shared_client
+    async with _client_lock:
+        if _shared_client is None or _shared_client.is_closed:
+            _shared_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0, connect=10.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+        return _shared_client
+
+
+async def close_http_client() -> None:
+    global _shared_client
+    async with _client_lock:
+        if _shared_client is not None and not _shared_client.is_closed:
+            await _shared_client.aclose()
+        _shared_client = None
+
 
 def resolve_num_thread(configured: int) -> int:
     if configured > 0:
@@ -26,7 +50,10 @@ class OllamaClient:
         self._embedding_model = settings.embedding_model
         self._chat_model = settings.chat_model
         self._keep_alive = settings.ollama_keep_alive
+        self._embedding_keep_alive = settings.ollama_embedding_keep_alive
+        self._unload_embedding_before_chat = settings.ollama_unload_embedding_before_chat
         self._default_num_predict = settings.ollama_num_predict
+        self._embed_batch_size = max(1, settings.ollama_embed_batch_size)
         self._base_options = {
             "num_ctx": settings.ollama_num_ctx,
             "num_thread": resolve_num_thread(settings.ollama_num_thread),
@@ -45,36 +72,43 @@ class OllamaClient:
 
     async def embed_text(self, text: str) -> list[float]:
         async with self._semaphore:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(
-                    f"{self._base_url}/api/embeddings",
-                    json={
-                        "model": self._embedding_model,
-                        "prompt": text,
-                        "keep_alive": 0,
-                    },
-                )
-                response.raise_for_status()
-                data = response.json()
-                embedding = data.get("embedding")
-                if not embedding:
-                    raise RuntimeError("Ollama returned empty embedding")
-                return embedding
+            client = await get_http_client()
+            response = await client.post(
+                f"{self._base_url}/api/embeddings",
+                json={
+                    "model": self._embedding_model,
+                    "prompt": text,
+                    "keep_alive": self._embedding_keep_alive,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            embedding = data.get("embedding")
+            if not embedding:
+                raise RuntimeError("Ollama returned empty embedding")
+            return embedding
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        batch_size = self._embed_batch_size
         results: list[list[float]] = []
-        for text in texts:
-            results.append(await self.embed_text(text))
+        for offset in range(0, len(texts), batch_size):
+            batch = texts[offset : offset + batch_size]
+            batch_results = await asyncio.gather(*(self.embed_text(text) for text in batch))
+            results.extend(batch_results)
         return results
 
     async def unload_model(self, model: str) -> None:
         """Free RAM by unloading a model from Ollama."""
+        if not self._unload_embedding_before_chat:
+            return
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                await client.post(
-                    f"{self._base_url}/api/generate",
-                    json={"model": model, "prompt": "", "keep_alive": 0},
-                )
+            client = await get_http_client()
+            await client.post(
+                f"{self._base_url}/api/generate",
+                json={"model": model, "prompt": "", "keep_alive": 0},
+            )
         except Exception:
             logger.warning("Failed to unload Ollama model %s", model, exc_info=True)
 
@@ -139,35 +173,35 @@ class OllamaClient:
         """Yield (token, done_reason) pairs from one Ollama stream."""
         options = self._chat_options(num_predict)
         async with self._semaphore:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._base_url}/api/chat",
-                    json={
-                        "model": self._chat_model,
-                        "messages": messages,
-                        "system": system,
-                        "stream": True,
-                        "keep_alive": self._keep_alive,
-                        "options": options,
-                    },
-                ) as response:
-                    response.raise_for_status()
-                    done_reason: str | None = None
-                    async for line in response.aiter_lines():
-                        if not line:
-                            continue
-                        try:
-                            payload = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-                        token = payload.get("message", {}).get("content", "")
-                        if token:
-                            yield token, None
-                        if payload.get("done"):
-                            done_reason = payload.get("done_reason")
-                            break
-                    yield "", done_reason
+            client = await get_http_client()
+            async with client.stream(
+                "POST",
+                f"{self._base_url}/api/chat",
+                json={
+                    "model": self._chat_model,
+                    "messages": messages,
+                    "system": system,
+                    "stream": True,
+                    "keep_alive": self._keep_alive,
+                    "options": options,
+                },
+            ) as response:
+                response.raise_for_status()
+                done_reason: str | None = None
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    try:
+                        payload = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    token = payload.get("message", {}).get("content", "")
+                    if token:
+                        yield token, None
+                    if payload.get("done"):
+                        done_reason = payload.get("done_reason")
+                        break
+                yield "", done_reason
 
     async def generate_text(self, prompt: str, system: str = "") -> str:
         """Single-shot chat completion (non-streaming)."""
@@ -197,13 +231,14 @@ class OllamaClient:
         if response_format is not None:
             payload["format"] = response_format
         async with self._semaphore:
-            async with httpx.AsyncClient(timeout=timeout or 180.0) as client:
-                response = await client.post(
-                    f"{self._base_url}/api/chat",
-                    json=payload,
-                )
-                response.raise_for_status()
-                return response.json().get("message", {}).get("content", "").strip()
+            client = await get_http_client()
+            response = await client.post(
+                f"{self._base_url}/api/chat",
+                json=payload,
+                timeout=timeout or 180.0,
+            )
+            response.raise_for_status()
+            return response.json().get("message", {}).get("content", "").strip()
 
 
 def hash_query(text: str) -> str:

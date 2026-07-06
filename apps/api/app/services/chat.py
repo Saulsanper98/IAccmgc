@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -28,6 +30,7 @@ from app.services.validated_qa import (
     validated_hits_to_prompt_entries,
     validated_qa_to_citation,
 )
+from app.services.wiki_section_router import WikiSection, parse_wiki_section_query
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,32 @@ DIARY_DEPT_SISTEMAS_PATTERN = re.compile(r"\bsistemas?\b", re.IGNORECASE)
 DIARY_EXPLICIT_DATE_PATTERN = re.compile(
     r"\b(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?\b"
 )
+DIARY_SPANISH_MONTH_PATTERN = re.compile(
+    r"\b(?:el\s+)?(?:d[ií]a\s+)?(\d{1,2})\s+de\s+"
+    r"(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)"
+    r"(?:\s+de\s+(\d{4}))?\b",
+    re.IGNORECASE,
+)
+DIARY_SPANISH_MONTH_REVERSED_PATTERN = re.compile(
+    r"\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)"
+    r"\s+(?:de\s+)?(\d{1,2})(?:\s+de\s+(\d{4}))?\b",
+    re.IGNORECASE,
+)
+SPANISH_MONTHS: dict[str, int] = {
+    "enero": 1,
+    "febrero": 2,
+    "marzo": 3,
+    "abril": 4,
+    "mayo": 5,
+    "junio": 6,
+    "julio": 7,
+    "agosto": 8,
+    "septiembre": 9,
+    "setiembre": 9,
+    "octubre": 10,
+    "noviembre": 11,
+    "diciembre": 12,
+}
 INGEST_QUERY_PATTERN = re.compile(
     r"(indexad|ingest|sincroniz|actualizad).{0,40}(hoy|reciente|últim|ultim)"
     r"|(qué|que)\s+se\s+ha\s+indexad"
@@ -222,108 +251,171 @@ class ChatService:
 
         started = time.perf_counter()
         try:
-            diary_hits = await self._fetch_diary_hits(content)
-            is_diary_query = bool(diary_hits)
-            if diary_hits:
+            yield self._sse("status", {"phase": "embedding", "message": "Buscando en la wiki…"})
+
+            diary_target = parse_diary_query(content)
+            embed_task = asyncio.create_task(self._resolve_query_embedding(content))
+
+            if diary_target:
+                embed_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await embed_task
+                dept_prefix, target_date = diary_target
                 yield self._sse(
                     "status",
                     {"phase": "searching", "message": "Localizando el diario del día…"},
                 )
-                hits = diary_hits
-                context_block, citations = self._build_context(hits, diary_hits=diary_hits)
-                direct_answer = format_diary_answer(diary_hits)
-                if direct_answer:
-                    yield self._sse(
-                        "status",
-                        {
-                            "phase": "generating",
-                            "message": "Resumiendo el diario…",
-                            "chunks_found": len(hits),
-                        },
-                    )
-                    full_response = direct_answer
-                    yield self._sse("token", {"content": full_response})
-                    cited_ids = [hit.chunk_id for hit in diary_hits]
-                    latency_ms = int((time.perf_counter() - started) * 1000)
-                    assistant_message = Message(
-                        conversation_id=conversation_id,
-                        role=MessageRole.ASSISTANT,
-                        content=full_response,
-                        cited_chunk_ids=cited_ids,
-                        latency_ms=latency_ms,
-                        model="wikibridge-diary",
-                    )
-                    self._session.add(assistant_message)
-                    conversation.updated_at = datetime.now(UTC)
-                    await self._session.commit()
-                    await self._session.refresh(assistant_message)
-                    yield self._sse("citations", {"citations": citations, "cited_chunk_ids": [str(cid) for cid in cited_ids]})
-                    yield self._sse(
-                        "done",
-                        {
-                            "message_id": str(assistant_message.id),
-                            "latency_ms": latency_ms,
-                            "model": "wikibridge-diary",
-                        },
-                    )
-                    return
+                diary_hits = await self._fetch_diary_hits_for_target(diary_target)
+                if diary_hits:
+                    hits = diary_hits
+                    context_block, citations = self._build_context(hits, diary_hits=diary_hits)
+                    direct_answer = format_diary_answer(diary_hits)
+                    if direct_answer:
+                        yield self._sse(
+                            "status",
+                            {
+                                "phase": "generating",
+                                "message": "Resumiendo el diario…",
+                                "chunks_found": len(hits),
+                            },
+                        )
+                        full_response = direct_answer
+                        yield self._sse("token", {"content": full_response})
+                        cited_ids = [hit.chunk_id for hit in diary_hits]
+                        latency_ms = int((time.perf_counter() - started) * 1000)
+                        assistant_message = Message(
+                            conversation_id=conversation_id,
+                            role=MessageRole.ASSISTANT,
+                            content=full_response,
+                            cited_chunk_ids=cited_ids,
+                            latency_ms=latency_ms,
+                            model="wikibridge-diary",
+                        )
+                        self._session.add(assistant_message)
+                        conversation.updated_at = datetime.now(UTC)
+                        await self._session.commit()
+                        await self._session.refresh(assistant_message)
+                        yield self._sse(
+                            "citations",
+                            {
+                                "citations": citations,
+                                "cited_chunk_ids": [str(cid) for cid in cited_ids],
+                            },
+                        )
+                        yield self._sse(
+                            "done",
+                            {
+                                "message_id": str(assistant_message.id),
+                                "latency_ms": latency_ms,
+                                "model": "wikibridge-diary",
+                            },
+                        )
+                        return
 
-            yield self._sse("status", {"phase": "embedding", "message": "Buscando en la wiki…"})
+                full_response = format_diary_not_found(dept_prefix, target_date)
+                yield self._sse(
+                    "status",
+                    {
+                        "phase": "generating",
+                        "message": "Diario no encontrado…",
+                        "chunks_found": 0,
+                    },
+                )
+                yield self._sse("token", {"content": full_response})
+                latency_ms = int((time.perf_counter() - started) * 1000)
+                assistant_message = Message(
+                    conversation_id=conversation_id,
+                    role=MessageRole.ASSISTANT,
+                    content=full_response,
+                    cited_chunk_ids=[],
+                    latency_ms=latency_ms,
+                    model="wikibridge-diary",
+                )
+                self._session.add(assistant_message)
+                conversation.updated_at = datetime.now(UTC)
+                await self._session.commit()
+                await self._session.refresh(assistant_message)
+                yield self._sse("citations", {"citations": [], "cited_chunk_ids": []})
+                yield self._sse(
+                    "done",
+                    {
+                        "message_id": str(assistant_message.id),
+                        "latency_ms": latency_ms,
+                        "model": "wikibridge-diary",
+                    },
+                )
+                return
 
-            query_hash = hash_query(content)
-            embedding = await self._cache.get(query_hash)
-            if embedding is None:
-                embedding = await embed_query_text(content, self._ollama)
-                await self._cache.set(query_hash, embedding)
+            embedding = await embed_task
 
             await self._ollama.unload_model(self._settings.embedding_model)
 
-            validated_hits = []
-            if ValidatedQAService.should_search_for_rag(is_diary_query=is_diary_query):
-                validated_qa_service = ValidatedQAService(self._session, self._settings)
-                validated_hits, _ = await validated_qa_service.search_validated(
-                    embedding,
-                    query_text=content,
+            wiki_section = parse_wiki_section_query(content)
+            if wiki_section:
+                yield self._sse(
+                    "status",
+                    {
+                        "phase": "searching",
+                        "message": f"Buscando en {wiki_section.label}…",
+                    },
                 )
-
-            if validated_hits and self._settings.validated_qa_mode == "direct":
-                async for event in self._stream_validated_direct_response(
-                    conversation=conversation,
-                    conversation_id=conversation_id,
-                    validated_hits=validated_hits,
-                    started=started,
-                ):
-                    yield event
-                return
-
-            yield self._sse("status", {"phase": "searching", "message": "Buscando en la documentación…"})
-
-            diary_hits = await self._fetch_diary_hits(content)
-            if diary_hits:
-                hits = diary_hits
             else:
-                final_k = self._settings.rag_final_chunks
-                if SUMMARY_QUERY_PATTERN.search(content):
-                    final_k = self._settings.rag_summary_final_chunks
-                hits = await self._search.search(
-                    content,
-                    embedding,
-                    top_k=self._settings.rag_search_top_k,
-                    final_k=final_k,
-                    rrf_k=self._settings.rrf_k,
+                yield self._sse(
+                    "status",
+                    {"phase": "searching", "message": "Buscando en la documentación…"},
                 )
 
-            context_block, citations = self._build_context(hits, diary_hits=diary_hits if diary_hits else None)
-            ingest_context = await self._build_ingest_context(content)
-            if ingest_context:
-                context_block = f"{ingest_context}\n\n---\n\n{context_block}"
-            history = await self._recent_history(conversation_id)
-            if diary_hits:
-                history = []
+            final_k = self._settings.rag_final_chunks
+            if SUMMARY_QUERY_PATTERN.search(content):
+                final_k = self._settings.rag_summary_final_chunks
 
+            search_kwargs = {
+                "top_k": self._settings.rag_search_top_k,
+                "final_k": final_k,
+                "rrf_k": self._settings.rrf_k,
+                "max_per_page": self._settings.rag_max_chunks_per_page,
+            }
+
+            validated_hits: list[ValidatedQaHit] = []
+            if ValidatedQAService.should_search_for_rag(is_diary_query=False):
+                validated_qa_service = ValidatedQAService(self._session, self._settings)
+                if self._settings.validated_qa_mode == "direct":
+                    validated_hits, _ = await validated_qa_service.search_validated(
+                        embedding, query_text=content
+                    )
+                    if validated_hits:
+                        async for event in self._stream_validated_direct_response(
+                            conversation=conversation,
+                            conversation_id=conversation_id,
+                            validated_hits=validated_hits,
+                            started=started,
+                        ):
+                            yield event
+                        return
+                    hits = await self._search_wiki(content, embedding, wiki_section, search_kwargs)
+                else:
+                    validated_task = asyncio.create_task(
+                        validated_qa_service.search_validated(embedding, query_text=content)
+                    )
+                    search_task = asyncio.create_task(
+                        self._search_wiki(content, embedding, wiki_section, search_kwargs)
+                    )
+                    validated_result, hits = await asyncio.gather(validated_task, search_task)
+                    validated_hits, _ = validated_result
+            else:
+                hits = await self._search_wiki(content, embedding, wiki_section, search_kwargs)
+
+            context_block, citations = self._build_context(
+                hits, diary_hits=None, wiki_section=wiki_section
+            )
+            ingest_task = asyncio.create_task(self._build_ingest_context(content))
+            history = await self._recent_history(conversation_id)
             user_instructions, team_instructions = await ChatInstructionsService(
                 self._session
             ).get_for_prompt(user_id)
+            ingest_context = await ingest_task
+            if ingest_context:
+                context_block = f"{ingest_context}\n\n---\n\n{context_block}"
             validated_prompt_entries = (
                 validated_hits_to_prompt_entries(validated_hits)
                 if validated_hits and self._settings.validated_qa_mode == "inject"
@@ -485,6 +577,36 @@ class ChatService:
             },
         )
 
+    async def _search_wiki(
+        self,
+        query: str,
+        embedding: list[float],
+        wiki_section: WikiSection | None,
+        search_kwargs: dict,
+    ) -> list[ChunkHit]:
+        if wiki_section:
+            hits = await self._search.search(
+                query,
+                embedding,
+                path_prefix=wiki_section.path_prefix,
+                **search_kwargs,
+            )
+            if hits:
+                return hits
+            logger.info(
+                "Section-scoped search returned no hits for %s, falling back to global",
+                wiki_section.path_prefix,
+            )
+        return await self._search.search(query, embedding, **search_kwargs)
+
+    async def _resolve_query_embedding(self, content: str) -> list[float]:
+        query_hash = hash_query(content)
+        embedding = await self._cache.get(query_hash)
+        if embedding is None:
+            embedding = await embed_query_text(content, self._ollama)
+            await self._cache.set(query_hash, embedding)
+        return embedding
+
     async def _recent_history(self, conversation_id: uuid.UUID) -> list[dict[str, str]]:
         result = await self._session.execute(
             select(Message)
@@ -501,13 +623,20 @@ class ChatService:
         return history[-2:]
 
     def _build_context(
-        self, hits: list[ChunkHit], *, diary_hits: list[ChunkHit] | None = None
+        self,
+        hits: list[ChunkHit],
+        *,
+        diary_hits: list[ChunkHit] | None = None,
+        wiki_section: WikiSection | None = None,
     ) -> tuple[str, list[dict]]:
         if not hits:
-            return (
-                "(No se encontraron fragmentos relevantes en la documentación indexada.)",
-                [],
-            )
+            empty = "(No se encontraron fragmentos relevantes en la documentación indexada.)"
+            if wiki_section:
+                empty = (
+                    f"(No se encontraron fragmentos en el área **{wiki_section.label}** "
+                    f"(`{wiki_section.path_prefix}`).)"
+                )
+            return empty, []
 
         max_chars = (
             self._settings.rag_diary_max_chars
@@ -517,6 +646,11 @@ class ChatService:
         blocks: list[str] = []
         citations: list[dict] = []
         diary_count = len(diary_hits or [])
+        if wiki_section and not diary_count:
+            blocks.append(
+                f"ÁREA WIKI PRIORIZADA — prioriza fragmentos de `{wiki_section.path_prefix}` "
+                f"({wiki_section.label})."
+            )
         if diary_count:
             blocks.append(
                 "ENTRADA OFICIAL DEL DÍA — responde SOLO con este diario, "
@@ -604,7 +738,11 @@ class ChatService:
         target = parse_diary_query(query)
         if not target:
             return []
+        return await self._fetch_diary_hits_for_target(target)
 
+    async def _fetch_diary_hits_for_target(
+        self, target: tuple[str, date]
+    ) -> list[ChunkHit]:
         dept_prefix, target_date = target
         path_pattern = (
             f"{dept_prefix}/diario/{target_date.year}/"
@@ -654,7 +792,8 @@ class ChatService:
         cited = self._extract_cited_chunk_ids(response, hits)
         if cited:
             return cited
-        return [hit.chunk_id for hit in hits]
+        fallback_max = max(1, self._settings.rag_citation_fallback_max)
+        return [hit.chunk_id for hit in hits[:fallback_max]]
 
     def _serialize_message(self, message: Message) -> dict:
         data = {
@@ -780,8 +919,30 @@ def parse_diary_query(query: str) -> tuple[str, date] | None:
                 target_date = date(year, month, day)
             except ValueError:
                 return None
-        elif re.search(r"\b(del día|del dia|día de|dia de)\b", query, re.IGNORECASE):
-            target_date = local_today()
+        else:
+            spanish_match = DIARY_SPANISH_MONTH_PATTERN.search(query)
+            if spanish_match:
+                day = int(spanish_match.group(1))
+                month = SPANISH_MONTHS[spanish_match.group(2).lower()]
+                year_raw = spanish_match.group(3)
+                year = int(year_raw) if year_raw else local_today().year
+                try:
+                    target_date = date(year, month, day)
+                except ValueError:
+                    return None
+            else:
+                reversed_match = DIARY_SPANISH_MONTH_REVERSED_PATTERN.search(query)
+                if reversed_match:
+                    month = SPANISH_MONTHS[reversed_match.group(1).lower()]
+                    day = int(reversed_match.group(2))
+                    year_raw = reversed_match.group(3)
+                    year = int(year_raw) if year_raw else local_today().year
+                    try:
+                        target_date = date(year, month, day)
+                    except ValueError:
+                        return None
+                elif re.search(r"\b(del día|del dia|día de|dia de)\b", query, re.IGNORECASE):
+                    target_date = local_today()
 
     if target_date is None:
         return None
@@ -794,6 +955,17 @@ def parse_diary_query(query: str) -> tuple[str, date] | None:
         dept_prefix = "sistemas"
 
     return dept_prefix, target_date
+
+
+def format_diary_not_found(dept_prefix: str, target_date: date) -> str:
+    dept_label = "Operadores" if dept_prefix.lower() == "operadores" else "Sistemas"
+    return (
+        f"No hay entrada de diario indexada para el **{target_date.strftime('%d/%m/%Y')}** "
+        f"en **{dept_label}**.\n\n"
+        f"Ruta esperada: `{dept_prefix}/diario/{target_date.year}/"
+        f"{target_date.month:02d}/{target_date.day:02d}`\n\n"
+        "Si la página existe en Wiki.js, lanza una sincronización desde Admin."
+    )
 
 
 def strip_html(text: str) -> str:

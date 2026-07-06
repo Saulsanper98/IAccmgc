@@ -8,6 +8,7 @@ interface ChatHeaderProps {
   title?: string;
   pageCount?: number | null;
   hasMessages?: boolean;
+  welcomeMode?: boolean;
   historyOpen?: boolean;
   onToggleHistory?: () => void;
   onNewChat?: () => void;
@@ -21,6 +22,7 @@ export function ChatHeader({
   title,
   pageCount,
   hasMessages = false,
+  welcomeMode = false,
   historyOpen = false,
   onToggleHistory,
   onNewChat,
@@ -30,11 +32,11 @@ export function ChatHeader({
   loading,
 }: ChatHeaderProps) {
   const { openMobileNav, openInstructions } = useNavShell();
-  const showPageCountSubtitle = !hasMessages && pageCount != null;
+  const showPageCountSubtitle = !welcomeMode && !hasMessages && pageCount != null;
   const showCompactPageBadge = hasMessages && pageCount != null;
 
   return (
-    <header className="sticky top-0 z-10 shrink-0 border-b border-stroke-subtle no-print surface-glass">
+    <header className="sticky top-0 z-10 shrink-0 no-print bg-surface-0">
       <div className="flex items-center gap-1 sm:gap-2 px-3 sm:px-6 py-3 w-full">
         <div className="flex items-center gap-1 shrink-0">
           <button
@@ -50,26 +52,32 @@ export function ChatHeader({
           )}
         </div>
 
-        <div className="flex-1 min-w-0 text-center px-2">
-          <div className="flex items-center justify-center gap-2 min-w-0">
-            <h1 className="text-sm font-medium truncate tracking-tight">
-              {loading ? "Cargando…" : title || "Chat"}
-            </h1>
-            {showCompactPageBadge && (
-              <span
-                className="shrink-0 text-[10px] tabular-nums px-1.5 py-0.5 rounded-full border border-stroke-subtle text-text-muted meta-caption"
-                title={`${pageCount} páginas indexadas`}
-              >
-                {pageCount}
-              </span>
+        {!welcomeMode && (
+          <div className="flex-1 min-w-0 text-center px-2">
+            <div className="flex items-center justify-center gap-2 min-w-0">
+              {(loading || title) && (
+                <h1 className="text-sm font-medium truncate tracking-tight">
+                  {loading ? "Cargando…" : title}
+                </h1>
+              )}
+              {showCompactPageBadge && (
+                <span
+                  className="shrink-0 text-[10px] tabular-nums px-1.5 py-0.5 rounded-full border border-stroke-subtle text-text-muted meta-caption"
+                  title={`${pageCount} páginas indexadas`}
+                >
+                  {pageCount}
+                </span>
+              )}
+            </div>
+            {showPageCountSubtitle && (
+              <p className="text-xs text-text-muted truncate mt-0.5">
+                {pageCount} páginas indexadas
+              </p>
             )}
           </div>
-          {showPageCountSubtitle && (
-            <p className="text-xs text-text-muted truncate mt-0.5">
-              {pageCount} páginas indexadas
-            </p>
-          )}
-        </div>
+        )}
+
+        {welcomeMode && <div className="flex-1 min-w-0" aria-hidden />}
 
         <div className="flex items-center gap-0.5 justify-end shrink-0 min-w-[4.5rem] sm:min-w-[5.5rem]">
           {onNewChat && (

@@ -1,3 +1,5 @@
+from datetime import date
+
 from app.services.chat import format_diary_answer, local_today, parse_diary_query
 
 
@@ -32,6 +34,43 @@ def test_parse_diary_query_explicit_date():
     assert dept == "sistemas"
     assert target.day == 2
     assert target.month == 7
+
+
+def test_parse_diary_query_spanish_month_name():
+    result = parse_diary_query(
+        "Que se comento en el diario de sistemas el dia 22 de junio?"
+    )
+    assert result is not None
+    dept, target = result
+    assert dept == "sistemas"
+    assert target.day == 22
+    assert target.month == 6
+    assert target.year == local_today().year
+
+
+def test_parse_diary_query_spanish_month_with_year():
+    result = parse_diary_query("diario operadores del 3 de julio de 2025")
+    assert result is not None
+    dept, target = result
+    assert dept == "Operadores"
+    assert target == date(2025, 7, 3)
+
+
+def test_parse_diary_query_spanish_month_reversed():
+    result = parse_diary_query("diario de sistemas del junio 22")
+    assert result is not None
+    dept, target = result
+    assert dept == "sistemas"
+    assert target.day == 22
+    assert target.month == 6
+
+
+def test_format_diary_not_found_message():
+    from app.services.chat import format_diary_not_found
+
+    message = format_diary_not_found("sistemas", date(2026, 6, 22))
+    assert "22/06/2026" in message
+    assert "sistemas/diario/2026/06/22" in message
 
 
 SAMPLE_DIARY_HTML = """

@@ -136,6 +136,16 @@ export function IconSearch({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
+export function IconHistory({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M3 3v5h5" />
+      <path d="M3.05 13A9 9 0 1 0 6 5.3" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  );
+}
+
 export function IconHome({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
@@ -274,6 +284,15 @@ export function IconNavExpanded({ className = "w-4 h-4" }: { className?: string 
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <path d="M9 3v18" />
       <path d="M13 12h6" />
+    </svg>
+  );
+}
+
+export function IconAlertCircle({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4M12 16h.01" />
     </svg>
   );
 }

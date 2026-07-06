@@ -151,3 +151,19 @@ def chunk_markdown(
             ordinal += 1
 
     return drafts
+
+
+def build_chunk_embed_input(
+    *,
+    page_title: str,
+    page_path: str,
+    tags: list[str],
+    heading_path: str,
+    content: str,
+) -> str:
+    """Text fed to the embedding model (richer than stored chunk content)."""
+    lines = [f"Página: {page_title}", f"Ruta: {page_path}"]
+    if tags:
+        lines.append(f"Tags: {', '.join(tags)}")
+    lines.extend(["", heading_path, "", content])
+    return "\n".join(lines)

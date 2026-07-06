@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.db.models import Chunk, IngestJob, IngestJobStatus, IngestJobType, WikiPage
-from app.services.chunking import chunk_markdown
+from app.services.chunking import build_chunk_embed_input, chunk_markdown
 from app.services.ollama import OllamaClient
 from app.services.wikijs import WikiJsClient, WikiPageDetail, WikiPageListItem
 
@@ -164,9 +164,19 @@ class IngestService:
             overlap_tokens=self._settings.chunk_overlap_tokens,
         )
 
-        for draft in drafts:
-            embed_input = f"{draft.heading_path}\n\n{draft.content}"
-            embedding = await self._ollama.embed_text(embed_input)
+        embed_inputs = [
+            build_chunk_embed_input(
+                page_title=detail.title,
+                page_path=detail.path,
+                tags=detail.tags,
+                heading_path=draft.heading_path,
+                content=draft.content,
+            )
+            for draft in drafts
+        ]
+        embeddings = await self._ollama.embed_texts(embed_inputs)
+
+        for draft, embedding in zip(drafts, embeddings, strict=True):
             chunk = Chunk(
                 page_id=page.id,
                 ordinal=draft.ordinal,

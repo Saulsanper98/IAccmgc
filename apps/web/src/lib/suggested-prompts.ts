@@ -116,17 +116,35 @@ export function contextualPrompts(options?: ContextualPromptOptions | number | n
   return prompts.slice(0, 8);
 }
 
-export function welcomePromptSections(options?: ContextualPromptOptions | number | null) {
-  const quick = contextualPrompts(options);
-  const shown = new Set(quick.map(normalizePrompt));
-  const contextual = quick.filter((p) => p.startsWith("Continúa sobre:"));
-  const highlights = quick.filter((p) => !p.startsWith("Continúa sobre:"));
-  const categories = PROMPT_CATEGORIES.map((cat) => ({
-    ...cat,
-    prompts: cat.prompts.filter((p) => !shown.has(normalizePrompt(p))).slice(0, 2),
-  })).filter((cat) => cat.prompts.length > 0);
+export function welcomeQuickActions(
+  options?: ContextualPromptOptions,
+): { label: string; prompt: string }[] {
+  const { recentTitles = [], role } = options ?? {};
+  const actions: { label: string; prompt: string }[] = [];
+  const seen = new Set<string>();
 
-  return { contextual, highlights, categories };
+  function add(label: string, prompt: string) {
+    const key = normalizePrompt(prompt);
+    if (seen.has(key)) return;
+    seen.add(key);
+    actions.push({ label, prompt });
+  }
+
+  for (const title of uniqueRecentTitles(recentTitles)) {
+    add("Continuar", `Continúa sobre: ${title.slice(0, 60)}`);
+    break;
+  }
+
+  for (const cat of PROMPT_CATEGORIES) {
+    if (actions.length >= 5) break;
+    add(cat.label, cat.prompts[0]);
+  }
+
+  if (role === "admin" && actions.length < 5) {
+    add("QA pendiente", "¿Cuántos Q&A validados hay pendientes de revisión?");
+  }
+
+  return actions.slice(0, 5);
 }
 
 /** Prompts adicionales rotativos para el botón «Más sugerencias». */

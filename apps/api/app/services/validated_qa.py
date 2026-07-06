@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -347,47 +348,66 @@ class ValidatedQAService:
                 break
 
         hits: list[ValidatedQaHit] = []
+        verify_jobs = []
         for row in candidates:
             similarity = float(row["similarity"])
-            qa_id = row["id"]
-
             if similarity >= verify_bypass:
                 logger.info(
                     "validated_qa candidate id=%s similarity=%.4f verdict=bypass",
-                    qa_id,
+                    row["id"],
                     similarity,
                 )
                 hits.append(self._row_to_hit(row, similarity, verification="bypass"))
                 continue
+            verify_jobs.append((row, similarity))
 
-            try:
-                accepted = await self._verify_question_match(user_question, row["question"])
-            except Exception:
-                logger.exception(
-                    "validated_qa candidate id=%s similarity=%.4f verdict=error",
-                    qa_id,
-                    similarity,
+        if verify_jobs:
+            verify_results = await asyncio.gather(
+                *(
+                    self._verify_candidate(row, similarity, user_question)
+                    for row, similarity in verify_jobs
                 )
-                continue
+            )
+            for hit in verify_results:
+                if hit is not None:
+                    hits.append(hit)
 
-            verdict = "accepted" if accepted else "rejected"
-            logger.info(
-                "validated_qa candidate id=%s similarity=%.4f verdict=%s",
+        return hits[:max_results], max_similarity
+
+    async def _verify_candidate(
+        self,
+        row,
+        similarity: float,
+        user_question: str,
+    ) -> ValidatedQaHit | None:
+        qa_id = row["id"]
+        try:
+            accepted = await self._verify_question_match(user_question, row["question"])
+        except Exception:
+            logger.exception(
+                "validated_qa candidate id=%s similarity=%.4f verdict=error",
                 qa_id,
                 similarity,
-                verdict,
             )
-            if accepted:
-                hits.append(self._row_to_hit(row, similarity, verification="llm_yes"))
+            return None
 
-        return hits, max_similarity
+        verdict = "accepted" if accepted else "rejected"
+        logger.info(
+            "validated_qa candidate id=%s similarity=%.4f verdict=%s",
+            qa_id,
+            similarity,
+            verdict,
+        )
+        if accepted:
+            return self._row_to_hit(row, similarity, verification="llm_yes")
+        return None
 
     async def _call_verify_llm(self, candidate_question: str, user_question: str) -> str:
         user_message = build_verify_user_message(candidate_question, user_question)
         return await self._ollama.chat_complete(
             [{"role": "user", "content": user_message}],
             system=QA_VERIFY_SYSTEM_PROMPT,
-            model=self._settings.validated_qa_verify_model,
+            model=self._settings.validated_qa_verify_model or self._settings.chat_model,
             num_predict=QA_VERIFY_NUM_PREDICT,
             timeout=self._settings.validated_qa_verify_timeout_seconds,
             response_format="json",

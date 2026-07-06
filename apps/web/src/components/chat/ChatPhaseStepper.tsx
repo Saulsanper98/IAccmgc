@@ -1,13 +1,14 @@
 "use client";
 
 import clsx from "clsx";
-import { phaseFromStatusMessage, statusMentionsChunks } from "@/lib/chat-status";
+import { friendlyChatStatus, phaseFromStatusMessage } from "@/lib/chat-status";
 
-const PHASES = [
-  { key: "embedding", label: "Generando embedding" },
-  { key: "searching", label: "Buscando contexto" },
-  { key: "generating", label: "Generando respuesta" },
-] as const;
+const PHASE_PROGRESS: Record<string, number> = {
+  embedding: 28,
+  searching: 62,
+  generating: 92,
+  started: 12,
+};
 
 export function ChatPhaseStepper({
   currentPhase,
@@ -16,32 +17,35 @@ export function ChatPhaseStepper({
   currentPhase?: string | null;
   statusMessage?: string | null;
 }) {
-  const phase = phaseFromStatusMessage(statusMessage, currentPhase);
-  if (!phase || phase === "started") return null;
-
-  const activeIndex = PHASES.findIndex((p) => p.key === phase);
+  const phase = phaseFromStatusMessage(statusMessage, currentPhase) ?? "started";
+  const label = friendlyChatStatus(statusMessage);
+  const progress = PHASE_PROGRESS[phase] ?? 12;
 
   return (
-    <div className="flex items-center gap-1 text-xs flex-wrap" aria-label="Progreso de la consulta">
-      {PHASES.map((phaseItem, i) => (
-        <div key={phaseItem.key} className="flex items-center gap-1">
-          <span
-            className={clsx(
-              "px-2 py-0.5 rounded-full border",
-              i <= activeIndex
-                ? "border-accent/50 text-accent bg-accent/10"
-                : "border-stroke-subtle text-text-muted",
-            )}
-          >
-            {phaseItem.label}
-          </span>
-          {i < PHASES.length - 1 && (
-            <span className="text-text-muted" aria-hidden>
-              →
-            </span>
+    <div className="py-1 max-w-md" aria-busy="true" aria-live="polite">
+      <div className="flex items-center gap-2.5">
+        <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
+          <span className="motion-safe:animate-ping absolute inline-flex h-full w-full rounded-full bg-accent/30 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
+        </span>
+        <p className="text-sm text-text-secondary">{label}</p>
+      </div>
+      <div
+        className="mt-3 h-0.5 rounded-full bg-surface-2 overflow-hidden"
+        role="progressbar"
+        aria-valuenow={progress}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label}
+      >
+        <div
+          className={clsx(
+            "h-full rounded-full bg-accent/80 motion-safe:transition-all motion-safe:duration-700 ease-out",
+            progress >= 90 && "motion-safe:animate-pulse",
           )}
-        </div>
-      ))}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
     </div>
   );
 }
@@ -53,27 +57,14 @@ export function RagProgressIndicator({
   chunksFound?: number | null;
   statusMessage?: string | null;
 }) {
-  const show = chunksFound != null || statusMentionsChunks(statusMessage);
-  if (!show) return null;
+  if (chunksFound == null) return null;
 
-  const count = chunksFound ?? null;
-  const label =
-    count != null
-      ? `${count} fragmento${count === 1 ? "" : "s"} encontrado${count === 1 ? "" : "s"}`
-      : "Analizando fragmentos…";
+  const phase = phaseFromStatusMessage(statusMessage);
+  if (phase !== "searching" && phase !== "generating") return null;
 
   return (
-    <p className="text-xs text-text-muted mt-2 flex items-center gap-2">
-      <span className="inline-flex gap-0.5" aria-hidden>
-        {[0, 1, 2].map((i) => (
-          <span
-            key={i}
-            className="w-1 h-1 rounded-full bg-accent/60 motion-safe:animate-pulse"
-            style={{ animationDelay: `${i * 200}ms` }}
-          />
-        ))}
-      </span>
-      {label}
+    <p className="text-xs text-text-muted mt-2 tabular-nums">
+      {chunksFound} fragmento{chunksFound === 1 ? "" : "s"} relevante{chunksFound === 1 ? "" : "s"}
     </p>
   );
 }

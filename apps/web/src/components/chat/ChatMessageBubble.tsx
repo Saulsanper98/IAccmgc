@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatMessage, Citation } from "@/lib/chat-types";
 import { MarkdownContent } from "@/components/markdown/MarkdownContent";
 import { CitationChips } from "./CitationCards";
@@ -9,7 +9,6 @@ import { ValidatedQaBadge } from "./ValidatedQaBadge";
 import { UserMessageActions } from "./MessageActions";
 import { ChatPhaseStepper, RagProgressIndicator } from "./ChatPhaseStepper";
 import { formatRelativeTime, type RegenerateMode } from "@/lib/format";
-import { friendlyChatStatus } from "@/lib/chat-status";
 import { useLazyMount } from "@/hooks/useLazyMount";
 import clsx from "clsx";
 
@@ -73,16 +72,23 @@ export function ChatMessageBubble({
         })()
       : null);
 
+  const resizeEditArea = useCallback(() => {
+    const el = editRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, []);
+
   useEffect(() => {
     if (editing) {
       editRef.current?.focus();
-      const el = editRef.current;
-      if (el) {
-        el.style.height = "auto";
-        el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-      }
+      resizeEditArea();
     }
-  }, [editing]);
+  }, [editing, resizeEditArea]);
+
+  useEffect(() => {
+    if (!editing) setEditValue(message.content);
+  }, [message.content, editing]);
 
   function handleResendEdit() {
     const trimmed = editValue.trim();
@@ -94,9 +100,15 @@ export function ChatMessageBubble({
   return (
     <div
       id={message.id !== "streaming" ? `msg-${message.id}` : undefined}
-      className={clsx("group w-full scroll-mt-24", isUser ? "flex justify-end" : "")}
+      className={clsx("group w-full scroll-mt-24", isUser && !editing ? "flex justify-end" : "")}
     >
-      <div className={clsx("min-w-0 w-full", isUser ? "max-w-[85%] ml-auto" : "")}>
+      <div
+        className={clsx(
+          "min-w-0 w-full",
+          isUser && !editing && "max-w-[85%] ml-auto",
+          isUser && editing && "max-w-2xl ml-auto",
+        )}
+      >
         {!isUser && (
           <div className="flex items-center gap-1.5 mb-1">
             <img src="/favicon.svg" alt="" width={14} height={14} className="rounded-sm shrink-0" aria-hidden />
@@ -104,6 +116,61 @@ export function ChatMessageBubble({
           </div>
         )}
 
+        {isUser && editing ? (
+          <div className="rounded-2xl border border-stroke-default bg-surface-1 p-4 shadow-sm">
+            <p className="text-xs font-medium text-text-muted mb-3">Editar y reenviar</p>
+            <textarea
+              ref={editRef}
+              value={editValue}
+              onChange={(e) => {
+                setEditValue(e.target.value);
+                resizeEditArea();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleResendEdit();
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setEditing(false);
+                  setEditValue(message.content);
+                }
+              }}
+              className="input-field w-full resize-none text-sm min-h-[72px] max-h-[200px] rounded-xl bg-surface-0 border-stroke-subtle focus:border-link leading-relaxed"
+              rows={3}
+              aria-label="Editar mensaje"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-stroke-subtle">
+              <p className="meta-caption text-text-muted">
+                <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[10px]">Esc</kbd> cancelar ·{" "}
+                <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[10px]">Ctrl</kbd>
+                {"+"}
+                <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[10px]">Enter</kbd> reenviar
+              </p>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => {
+                    setEditing(false);
+                    setEditValue(message.content);
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary btn-sm btn-pill"
+                  onClick={handleResendEdit}
+                  disabled={!editValue.trim() || editValue.trim() === message.content.trim()}
+                >
+                  Reenviar
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div
           className={clsx(
             isUser
@@ -112,65 +179,13 @@ export function ChatMessageBubble({
           )}
         >
           {isUser ? (
-            editing ? (
-              <div className="space-y-2">
-                <textarea
-                  ref={editRef}
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      handleResendEdit();
-                    }
-                    if (e.key === "Escape") {
-                      setEditing(false);
-                      setEditValue(message.content);
-                    }
-                  }}
-                  className="input-field w-full resize-none text-sm min-h-[44px] rounded-xl bg-surface-1"
-                  rows={2}
-                />
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    className="btn-ghost text-xs px-2 py-1"
-                    onClick={() => {
-                      setEditing(false);
-                      setEditValue(message.content);
-                    }}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-primary text-xs px-3 py-1"
-                    onClick={handleResendEdit}
-                    disabled={!editValue.trim()}
-                  >
-                    Reenviar
-                  </button>
-                </div>
-              </div>
-            ) : (
               <p className="message-body whitespace-pre-wrap">{message.content}</p>
-            )
           ) : (
             <>
               {isPending && !message.content && (
-                <div className="py-1" aria-busy="true">
+                <div aria-busy="true">
                   <ChatPhaseStepper currentPhase={statusPhase} statusMessage={pendingStatus} />
-                  <p className="text-sm text-text-secondary mt-2">{friendlyChatStatus(pendingStatus)}</p>
                   <RagProgressIndicator chunksFound={chunksFound} statusMessage={pendingStatus} />
-                  <div className="flex gap-1 mt-3" aria-hidden>
-                    {[0, 1, 2].map((i) => (
-                      <span
-                        key={i}
-                        className="w-1.5 h-1.5 rounded-full bg-text-muted motion-safe:animate-bounce"
-                        style={{ animationDelay: `${i * 120}ms` }}
-                      />
-                    ))}
-                  </div>
                 </div>
               )}
 
@@ -235,6 +250,7 @@ export function ChatMessageBubble({
             </>
           )}
         </div>
+        )}
 
         {isUser && !editing && (
           <UserMessageActions

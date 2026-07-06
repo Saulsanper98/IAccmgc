@@ -41,12 +41,15 @@ class Settings(BaseSettings):
     chat_model: str = "qwen2.5:3b-instruct"
     embedding_model: str = "bge-m3"
     embedding_dim: int = 1024
-    ollama_num_ctx: int = 4096
+    ollama_num_ctx: int = 2048
     ollama_num_predict: int = 1500
     ollama_num_predict_short: int = 700
     ollama_max_continue_rounds: int = 2
     ollama_num_thread: int = 0
     ollama_keep_alive: str = "5m"
+    ollama_embedding_keep_alive: str = "2m"
+    ollama_unload_embedding_before_chat: bool = False
+    ollama_embed_batch_size: int = 4
     ollama_max_concurrency: int = 1
 
     # Wiki.js
@@ -78,17 +81,19 @@ class Settings(BaseSettings):
 
     # RAG / Chat
     rag_search_top_k: int = 10
-    rag_final_chunks: int = 4
-    rag_summary_final_chunks: int = 8
+    rag_final_chunks: int = 6
+    rag_summary_final_chunks: int = 10
     rag_chunk_max_chars: int = 900
     rag_diary_max_chars: int = 6000
+    rag_max_chunks_per_page: int = 2
+    rag_citation_fallback_max: int = 2
     rrf_k: int = 60
     query_embedding_cache_ttl_seconds: int = 300
 
     # Validated Q&A learning circuit
     validated_qa_recall_threshold: float = 0.70
     validated_qa_verify_bypass: float = 0.98
-    validated_qa_verify_model: str = "qwen2.5:7b-instruct"
+    validated_qa_verify_model: str = ""
     validated_qa_verify_timeout_seconds: float = 30.0
     validated_qa_max_results: int = 2
     # direct: respuesta almacenada sin LLM de chat | inject: inyectar en system prompt (legacy)

@@ -434,6 +434,106 @@
     @apply flex flex-col flex-1 min-w-0 min-h-0 w-full overflow-hidden;
   }
 
+  .chat-thread-composer {
+    @apply rounded-2xl border border-stroke-subtle bg-surface-1 px-3 py-2;
+  }
+
+  .chat-thread-composer:focus-within {
+    border-color: color-mix(in srgb, var(--color-link) 35%, var(--stroke-subtle));
+  }
+
+  .chat-welcome-composer {
+    @apply rounded-3xl border border-stroke-subtle bg-surface-1 px-3 py-2;
+  }
+
+  [data-theme="light"] .chat-welcome-composer {
+    @apply bg-surface-2;
+  }
+
+  .chat-welcome-composer:focus-within {
+    border-color: color-mix(in srgb, var(--color-link) 45%, var(--stroke-subtle));
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.12);
+  }
+
+  .chat-input-no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .chat-input-no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .chat-recent-prompts {
+    @apply absolute left-0 right-0 bottom-full z-20 overflow-hidden animate-toast-in;
+    margin-bottom: var(--space-2);
+    border-radius: var(--radius-lg);
+    background: var(--surface-glass);
+    backdrop-filter: blur(var(--blur-glass));
+    -webkit-backdrop-filter: blur(var(--blur-glass));
+    border: 1px solid var(--stroke-default);
+    box-shadow: var(--shadow-md);
+  }
+
+  .chat-recent-prompts-header {
+    @apply flex items-center justify-between gap-2 px-3 py-2;
+    border-bottom: 1px solid var(--stroke-subtle);
+  }
+
+  .chat-recent-prompts-list {
+    @apply overflow-y-auto overflow-x-hidden py-1;
+    max-height: 11rem;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .chat-recent-prompts-list::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  .chat-recent-prompts-item {
+    @apply flex items-start gap-2.5 w-full text-left transition-colors;
+    padding: var(--space-2) var(--space-3);
+    margin: 0 var(--space-1);
+    border-radius: var(--radius-md);
+    min-height: 36px;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    color: var(--text-primary);
+  }
+
+  .chat-recent-prompts-item:hover,
+  .chat-recent-prompts-item:focus-visible {
+    background: var(--surface-2);
+    outline: none;
+  }
+
+  .chat-recent-prompts-item-icon {
+    @apply shrink-0 mt-0.5;
+    color: var(--text-muted);
+  }
+
+  .chat-recent-prompts-item:hover .chat-recent-prompts-item-icon,
+  .chat-recent-prompts-item:focus-visible .chat-recent-prompts-item-icon {
+    color: var(--color-link);
+  }
+
+  .chat-recent-prompts-item-text {
+    @apply min-w-0 flex-1 break-words;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .chat-input-centered::placeholder {
+    text-align: center;
+  }
+
   @keyframes toast-in {
     from {
       opacity: 0;
@@ -456,6 +556,56 @@
 
   .animate-toast-in {
     animation: toast-in 0.22s ease-out;
+  }
+
+  .toast-stack {
+    @apply fixed top-4 left-1/2 z-[100] flex flex-col items-center gap-2 w-full max-w-sm px-4 pointer-events-none;
+    transform: translateX(-50%);
+  }
+
+  .toast-item {
+    @apply pointer-events-auto flex items-center gap-2.5 w-full animate-toast-in;
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+    border-radius: var(--radius-xl);
+    background: var(--surface-glass);
+    backdrop-filter: blur(var(--blur-glass));
+    -webkit-backdrop-filter: blur(var(--blur-glass));
+    border: 1px solid var(--stroke-subtle);
+    box-shadow: var(--shadow-md);
+    font-size: var(--text-sm);
+    line-height: 1.35;
+    color: var(--text-primary);
+  }
+
+  .toast-item-icon {
+    @apply shrink-0 flex items-center justify-center rounded-full;
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .toast-item-icon--success {
+    background: color-mix(in srgb, var(--status-ok) 18%, transparent);
+    color: var(--status-ok);
+  }
+
+  .toast-item-icon--error {
+    background: color-mix(in srgb, var(--status-error) 18%, transparent);
+    color: var(--status-error);
+  }
+
+  .toast-item-icon--info {
+    background: var(--surface-2);
+    color: var(--text-secondary);
+  }
+
+  .toast-item-message {
+    @apply flex-1 min-w-0 text-left;
+  }
+
+  .toast-item-close {
+    @apply shrink-0 rounded-full text-text-muted hover:text-text-primary hover:bg-surface-2 transition-colors;
+    min-width: 2rem;
+    min-height: 2rem;
   }
 
   .animate-drawer-in {

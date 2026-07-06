@@ -28,6 +28,22 @@ def test_split_markdown_sections():
     assert any("Zonas inversas" in path for path in paths)
 
 
+def test_build_chunk_embed_input_includes_metadata():
+    from app.services.chunking import build_chunk_embed_input
+
+    text = build_chunk_embed_input(
+        page_title="3.Virtualización VMware",
+        page_path="sistemas/vmware",
+        tags=["vmware", "vsphere"],
+        heading_path="Cluster > Hosts",
+        content="Reinicio de ESXi.",
+    )
+    assert "Página: 3.Virtualización VMware" in text
+    assert "Ruta: sistemas/vmware" in text
+    assert "Tags: vmware, vsphere" in text
+    assert "Reinicio de ESXi." in text
+
+
 def test_chunk_markdown_produces_chunks_with_heading_path():
     chunks = chunk_markdown(SAMPLE_DOC, min_tokens=10, max_tokens=80, overlap_tokens=5)
     assert len(chunks) >= 1

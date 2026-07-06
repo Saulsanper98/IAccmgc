@@ -1,6 +1,7 @@
 "use client";
 
 import type { Citation } from "@/lib/chat-types";
+import { stripHtml } from "@/lib/strip-html";
 import clsx from "clsx";
 
 interface ChatSourcesPanelProps {
@@ -42,9 +43,11 @@ export function ChatSourcesPanel({
               <span className="text-[10px] font-medium text-text-muted tabular-nums">
                 [{index + 1}]
               </span>
-              <p className="font-medium truncate mt-0.5">{citation.page_title}</p>
+              <p className="font-medium truncate mt-0.5">{stripHtml(citation.page_title)}</p>
               {citation.excerpt && (
-                <p className="text-xs text-text-muted line-clamp-3 mt-1">{citation.excerpt}</p>
+                <p className="text-xs text-text-muted line-clamp-3 mt-1 leading-relaxed">
+                  {stripHtml(citation.excerpt)}
+                </p>
               )}
               {citation.wiki_url && (
                 <a

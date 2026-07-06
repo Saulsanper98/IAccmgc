@@ -8,6 +8,13 @@ export function formatLatency(ms: number | null | undefined): string {
   return rem > 0 ? `${minutes} min ${rem} s` : `${minutes} min`;
 }
 
+export function getTimeGreeting(date = new Date()): string {
+  const hour = date.getHours();
+  if (hour < 12) return "Buenos días";
+  if (hour < 20) return "Buenas tardes";
+  return "Buenas noches";
+}
+
 export function formatRelativeTime(iso: string): string {
   const date = new Date(iso);
   const diff = Date.now() - date.getTime();

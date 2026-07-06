@@ -8,6 +8,8 @@ import { ChatInput } from "./ChatInput";
 import { ChatMessages } from "./ChatMessages";
 import { ChatSidebar } from "./ChatSidebar";
 import { ChatHeader } from "./ChatHeader";
+import { ChatWelcome } from "./ChatWelcome";
+import { SuggestedPrompts } from "./SuggestedPrompts";
 import { exportConversationMarkdown, friendlyError, REGENERATE_SUFFIXES, type RegenerateMode } from "@/lib/format";
 import { truncateChatTitle } from "@/lib/chat-status";
 import { removeConversationPins } from "@/lib/conversation-pins";
@@ -21,6 +23,7 @@ interface ChatWorkspaceProps {
   wikiUrl?: string | null;
   lastSyncAt?: string | null;
   userRole?: string;
+  userName?: string | null;
   isAdmin?: boolean;
 }
 
@@ -34,6 +37,7 @@ export function ChatWorkspace({
   wikiUrl,
   lastSyncAt,
   userRole,
+  userName,
   isAdmin: _isAdmin = false,
 }: ChatWorkspaceProps) {
   const router = useRouter();
@@ -298,7 +302,7 @@ export function ChatWorkspace({
 
     optimisticSidebarUpdate(convId, content);
 
-    const optimisticUser: ChatMessage = {
+    let optimisticUser: ChatMessage = {
       id: `temp-${Date.now()}`,
       role: "user",
       content,
@@ -391,6 +395,19 @@ export function ChatWorkspace({
             }
             if (payload.used_validated_qa) {
               usedValidatedQa = payload.used_validated_qa as UsedValidatedQa[];
+            }
+          } else if (event === "user_message") {
+            const userId = (payload.id as string) ?? "";
+            const userContent = (payload.content as string) ?? content;
+            if (userId) {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === optimisticUser.id
+                    ? { ...m, id: userId, content: userContent }
+                    : m,
+                ),
+              );
+              optimisticUser = { ...optimisticUser, id: userId, content: userContent };
             }
           } else if (event === "error") {
             throw new Error((payload.message as string) ?? "Error en el stream");
@@ -548,6 +565,7 @@ export function ChatWorkspace({
           title={activeTitle}
           pageCount={pageCount}
           hasMessages={messages.length > 0}
+          welcomeMode={isEmpty}
           historyOpen={historyOpen}
           onToggleHistory={() => setHistoryOpen((v) => !v)}
           onNewChat={handleNewChat}
@@ -608,7 +626,7 @@ export function ChatWorkspace({
           </div>
         )}
 
-        {slowConnection && busy && (
+        {slowConnection && busy && !isEmpty && (
           <div className="chat-content-column px-4 md:px-6 mt-2 no-print">
             <p className="text-[11px] text-text-muted meta-caption text-center" role="status">
               La respuesta tarda más de lo habitual. Comprueba tu conexión o espera un momento.
@@ -616,37 +634,57 @@ export function ChatWorkspace({
           </div>
         )}
 
-        <ChatMessages
-          messages={messages}
-          streamingContent={streamingContent}
-          streamingCitations={streamingCitations}
-          isSearching={busy}
-          statusMessage={statusMessage}
-          statusPhase={statusPhase}
-          chunksFound={chunksFound}
-          pageCount={pageCount}
-          wikiUrl={wikiUrl}
-          lastSyncAt={lastSyncAt}
-          loadingMessages={loadingMessages}
-          promptOptions={promptOptions}
-          onSuggestedPrompt={(p) => void handleSend(p)}
-          onRegenerate={handleRegenerate}
-          onEditUser={handleEditUser}
-          onRetry={handleRetry}
-          conversationId={activeConversationId}
-        />
+        {isEmpty ? (
+          <div className="flex flex-1 flex-col items-center justify-center min-h-0 px-4 md:px-6 pb-8 no-print">
+            <div className="w-full max-w-xl flex flex-col items-center gap-6">
+              <ChatWelcome userName={userName} />
+              <ChatInput
+                  inputRef={chatInputRef}
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  busy={busy}
+                  initialValue={editDraft}
+                  conversationId={activeConversationId}
+                  size="large"
+                centered
+              />
+              <SuggestedPrompts
+                promptOptions={promptOptions}
+                onSelect={(p) => void handleSend(p)}
+                disabled={busy}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            <ChatMessages
+              messages={messages}
+              streamingContent={streamingContent}
+              streamingCitations={streamingCitations}
+              isSearching={busy}
+              statusMessage={statusMessage}
+              statusPhase={statusPhase}
+              chunksFound={chunksFound}
+              wikiUrl={wikiUrl}
+              loadingMessages={loadingMessages}
+              onRegenerate={handleRegenerate}
+              onEditUser={handleEditUser}
+              onRetry={handleRetry}
+              conversationId={activeConversationId}
+            />
 
-        {/* CHAT-06: cola de mensajes mientras genera requiere soporte backend (endpoint batch/stream). */}
-        <ChatInput
-          inputRef={chatInputRef}
-          onSend={handleSend}
-          onStop={handleStop}
-          busy={busy}
-          initialValue={editDraft}
-          conversationId={activeConversationId}
-          size={isEmpty ? "large" : "default"}
-          centered={isEmpty}
-        />
+            <ChatInput
+              inputRef={chatInputRef}
+              onSend={handleSend}
+              onStop={handleStop}
+              busy={busy}
+              initialValue={editDraft}
+              conversationId={activeConversationId}
+              size="default"
+              centered={false}
+            />
+          </>
+        )}
       </div>
     </>
   );

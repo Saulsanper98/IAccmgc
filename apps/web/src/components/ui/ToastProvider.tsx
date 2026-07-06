@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useRef, useState } from "react";
+import { IconAlertCircle, IconCheck, IconClose, IconInfo } from "@/components/ui/Icons";
 import clsx from "clsx";
-import { IconClose } from "@/components/ui/Icons";
 
 type ToastType = "success" | "error" | "info";
 
@@ -20,6 +20,15 @@ const ToastContext = createContext<ToastContextValue | null>(null);
 
 const MAX_TOASTS = 3;
 const TOAST_DURATION_MS = 4000;
+
+const TOAST_CONFIG: Record<
+  ToastType,
+  { Icon: typeof IconCheck; iconClass: string; label: string }
+> = {
+  success: { Icon: IconCheck, iconClass: "toast-item-icon--success", label: "Éxito" },
+  error: { Icon: IconAlertCircle, iconClass: "toast-item-icon--error", label: "Error" },
+  info: { Icon: IconInfo, iconClass: "toast-item-icon--info", label: "Información" },
+};
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -64,39 +73,35 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
-      <div
-        className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-full max-w-md px-4 pointer-events-none"
-        aria-live="polite"
-        aria-relevant="additions"
-        aria-atomic="true"
-      >
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            role={t.type === "error" ? "alert" : "status"}
-            aria-live={t.type === "error" ? "assertive" : "polite"}
-            onMouseEnter={() => pauseDismiss(t.id)}
-            onMouseLeave={() => scheduleDismiss(t.id)}
-            onFocus={() => pauseDismiss(t.id)}
-            onBlur={() => scheduleDismiss(t.id)}
-            className={clsx(
-              "surface-card-elevated pl-4 pr-2 py-3 text-sm animate-toast-in pointer-events-auto flex items-center gap-2",
-              t.type === "success" && "border-l-2 border-status-ok",
-              t.type === "error" && "border-l-2 border-status-error",
-              t.type === "info" && "border-l-2 border-link",
-            )}
-          >
-            <span className="flex-1 text-center">{t.message}</span>
-            <button
-              type="button"
-              onClick={() => dismiss(t.id)}
-              className="btn-icon !min-h-[32px] !min-w-[32px] shrink-0"
-              aria-label="Cerrar notificación"
+      <div className="toast-stack" aria-live="polite" aria-relevant="additions" aria-atomic="true">
+        {toasts.map((t) => {
+          const { Icon, iconClass, label } = TOAST_CONFIG[t.type];
+          return (
+            <div
+              key={t.id}
+              role={t.type === "error" ? "alert" : "status"}
+              aria-live={t.type === "error" ? "assertive" : "polite"}
+              onMouseEnter={() => pauseDismiss(t.id)}
+              onMouseLeave={() => scheduleDismiss(t.id)}
+              onFocus={() => pauseDismiss(t.id)}
+              onBlur={() => scheduleDismiss(t.id)}
+              className="toast-item"
             >
-              <IconClose className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
+              <span className={clsx("toast-item-icon", iconClass)} aria-hidden>
+                <Icon className="w-3.5 h-3.5" />
+              </span>
+              <span className="toast-item-message">{t.message}</span>
+              <button
+                type="button"
+                onClick={() => dismiss(t.id)}
+                className="toast-item-close btn-icon !min-h-8 !min-w-8"
+                aria-label={`Cerrar notificación: ${label}`}
+              >
+                <IconClose className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { IconArrowUp, IconStop } from "@/components/ui/Icons";
+import { IconArrowUp, IconHistory, IconStop } from "@/components/ui/Icons";
 import { addPromptHistory, getPromptHistory } from "@/lib/prompt-history";
 import clsx from "clsx";
 
@@ -145,83 +145,137 @@ export function ChatInput({
       className={clsx(
         "shrink-0 no-print w-full",
         centered
-          ? "py-0 px-0 bg-transparent border-0"
-          : "border-t border-stroke-subtle py-4 surface-glass chat-input-shadow pb-safe px-4 md:px-6",
-        isGenerating && "opacity-95",
+          ? "py-0 px-0 bg-transparent"
+          : "border-t border-stroke-subtle py-3 pb-safe px-4 md:px-6 bg-transparent",
       )}
     >
-      <div className={clsx("chat-content-column mx-auto flex gap-3 items-end w-full", isLarge && "max-w-2xl")}>
-        <div className="flex-1 min-w-0 relative">
-          {isGenerating && (
-            <div
-              className="absolute inset-0 rounded-2xl bg-surface-1/40 pointer-events-none z-[1] border border-stroke-subtle/50"
-              aria-hidden
-            />
+      <div
+        className={clsx(
+          "chat-content-column mx-auto w-full",
+          isLarge || centered ? "max-w-xl" : "max-w-2xl",
+        )}
+      >
+        <div
+          className={clsx(
+            "relative flex gap-2 items-end w-full",
+            centered ? "chat-welcome-composer" : "chat-thread-composer",
           )}
-          <textarea
-            id="chat-input"
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => setContent(e.target.value.slice(0, MAX_CHARS))}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                void handleSubmit();
-                return;
-              }
-              if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && sendOnEnter) {
-                e.preventDefault();
-                void handleSubmit();
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setContent("");
-                try {
-                  sessionStorage.removeItem(draftKey(conversationId));
-                } catch {
-                  /* ignore */
+        >
+          <div className="flex-1 min-w-0 relative">
+            <textarea
+              id="chat-input"
+              ref={textareaRef}
+              value={content}
+              onChange={(e) => setContent(e.target.value.slice(0, MAX_CHARS))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  void handleSubmit();
+                  return;
                 }
+                if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey && sendOnEnter) {
+                  e.preventDefault();
+                  void handleSubmit();
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  setContent("");
+                  try {
+                    sessionStorage.removeItem(draftKey(conversationId));
+                  } catch {
+                    /* ignore */
+                  }
+                }
+              }}
+              onFocus={() => {
+                if (!content.trim() && recentPrompts.length > 0) setShowRecent(true);
+              }}
+              onBlur={() => {
+                window.setTimeout(() => setShowRecent(false), 120);
+              }}
+              placeholder={
+                isGenerating
+                  ? "Generando respuesta…"
+                  : centered
+                    ? "Pregunta sobre la documentación…"
+                    : "Escribe tu pregunta…"
               }
-            }}
-            onFocus={() => {
-              if (!content.trim() && recentPrompts.length > 0) setShowRecent(true);
-            }}
-            onBlur={() => {
-              window.setTimeout(() => setShowRecent(false), 120);
-            }}
-            placeholder={isGenerating ? "Generando respuesta…" : "Escribe tu pregunta sobre la documentación…"}
-            rows={1}
-            aria-busy={isGenerating}
-            className={clsx(
-              "input-field w-full resize-none rounded-2xl bg-surface-1 border-stroke-default",
-              "max-h-[160px] overflow-y-auto",
-              isLarge ? "min-h-[56px] text-base px-4 py-3" : "min-h-[44px]",
-              isGenerating && "text-text-muted",
+              rows={1}
+              readOnly={isGenerating}
+              aria-busy={isGenerating}
+              className={clsx(
+                "w-full resize-none text-text-primary placeholder:text-text-muted focus:outline-none chat-input-no-scrollbar",
+                "bg-transparent border-0 min-h-[44px] max-h-[160px] overflow-y-auto shadow-none",
+                centered ? "text-base px-2 py-2.5" : "text-sm px-1 py-2",
+                isLarge && centered && "min-h-[48px]",
+                isGenerating && "text-text-muted",
+              )}
+              aria-label="Escribe tu pregunta"
+            />
+            {showRecent && recentPrompts.length > 0 && !content.trim() && (
+              <div className="chat-recent-prompts" role="group" aria-label="Preguntas recientes">
+                <div className="chat-recent-prompts-header">
+                  <span className="flex items-center gap-1.5 section-label !mb-0">
+                    <IconHistory className="w-3.5 h-3.5 text-text-muted" />
+                    Recientes
+                  </span>
+                  <span className="meta-caption tabular-nums">{recentPrompts.length}</span>
+                </div>
+                <div className="chat-recent-prompts-list">
+                  {recentPrompts.slice(0, 6).map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      className="chat-recent-prompts-item"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setContent(prompt);
+                        setShowRecent(false);
+                        textareaRef.current?.focus();
+                      }}
+                    >
+                      <IconHistory className="w-3.5 h-3.5 chat-recent-prompts-item-icon" />
+                      <span className="chat-recent-prompts-item-text">{prompt}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
-            aria-label="Escribe tu pregunta"
-          />
-          {showRecent && recentPrompts.length > 0 && !content.trim() && (
-            <div className="absolute left-0 right-0 bottom-full mb-1 z-20 surface-card-elevated border border-stroke-subtle rounded-lg p-1 max-h-40 overflow-y-auto shadow-elevated">
-              <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-text-muted">Recientes</p>
-              {recentPrompts.slice(0, 6).map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="list-row w-full text-xs rounded-md text-left"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    setContent(prompt);
-                    setShowRecent(false);
-                    textareaRef.current?.focus();
-                  }}
-                >
-                  <span className="truncate">{prompt}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="flex justify-between mt-1.5 px-1 gap-2 flex-wrap">
+          </div>
+
+          <div className="relative shrink-0 self-end w-11 h-11">
+            <button
+              type="button"
+              onClick={onStop}
+              className={clsx(
+                "absolute inset-0 btn-ghost !min-h-[44px] !min-w-[44px] !rounded-full border-status-error/40 text-status-error",
+                "transition-all duration-200",
+                isGenerating && onStop ? "opacity-100 scale-100" : "opacity-0 scale-90 pointer-events-none",
+              )}
+              aria-label="Detener generación"
+              tabIndex={isGenerating && onStop ? 0 : -1}
+            >
+              <IconStop className="w-4 h-4" />
+            </button>
+            <button
+              type="submit"
+              disabled={isGenerating || !content.trim()}
+              className={clsx(
+                "absolute inset-0 btn-send !min-h-[44px] !min-w-[44px] !rounded-full !p-0",
+                "transition-all duration-200",
+                isGenerating ? "opacity-0 scale-90 pointer-events-none" : "opacity-100 scale-100",
+              )}
+              aria-label="Enviar mensaje"
+              tabIndex={isGenerating ? -1 : 0}
+            >
+              <IconArrowUp className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {!centered && !isGenerating && (
+          <div className="flex justify-between mt-2 px-1 gap-2 flex-wrap">
             <span className="meta-caption">
               <kbd className="px-1 py-0.5 rounded bg-surface-2 text-[9px]">Shift</kbd>
               {" + "}
@@ -252,36 +306,7 @@ export function ChatInput({
               </span>
             )}
           </div>
-        </div>
-
-        <div className="relative shrink-0 self-end w-11 h-11">
-          <button
-            type="button"
-            onClick={onStop}
-            className={clsx(
-              "absolute inset-0 btn-ghost !min-h-[44px] !min-w-[44px] !rounded-full border-status-error/40 text-status-error",
-              "transition-all duration-200",
-              isGenerating && onStop ? "opacity-100 scale-100" : "opacity-0 scale-90 pointer-events-none",
-            )}
-            aria-label="Detener generación"
-            tabIndex={isGenerating && onStop ? 0 : -1}
-          >
-            <IconStop className="w-4 h-4" />
-          </button>
-          <button
-            type="submit"
-            disabled={isGenerating || !content.trim()}
-            className={clsx(
-              "absolute inset-0 btn-send !min-h-[44px] !min-w-[44px] !rounded-full !p-0",
-              "transition-all duration-200",
-              isGenerating ? "opacity-0 scale-90 pointer-events-none" : "opacity-100 scale-100",
-            )}
-            aria-label="Enviar mensaje"
-            tabIndex={isGenerating ? -1 : 0}
-          >
-            <IconArrowUp className="w-5 h-5" />
-          </button>
-        </div>
+        )}
       </div>
     </form>
   );
